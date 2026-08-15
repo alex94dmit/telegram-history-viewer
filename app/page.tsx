@@ -6,6 +6,7 @@ import {
   Fragment,
   KeyboardEvent,
   ReactNode,
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -420,7 +421,14 @@ export default function Home() {
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const mediaFilesRef = useRef(new Map<string, File>());
   const mediaUrlsRef = useRef(new Map<string, string>());
+  const viewerUrlRef = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
+
+  const closeMediaViewer = useCallback(() => {
+    if (viewerUrlRef.current) URL.revokeObjectURL(viewerUrlRef.current);
+    viewerUrlRef.current = null;
+    setViewerMedia(null);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -430,7 +438,7 @@ export default function Home() {
     if (!viewerMedia) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setViewerMedia(null);
+      if (event.key === "Escape") closeMediaViewer();
     };
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", closeOnEscape);
@@ -438,7 +446,7 @@ export default function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [viewerMedia]);
+  }, [viewerMedia, closeMediaViewer]);
 
   const messagesById = useMemo(
     () => new Map(chat.messages.map((message) => [String(message.id), message])),
@@ -505,15 +513,30 @@ export default function Home() {
     mediaUrlsRef.current.clear();
   }
 
+  function mediaFile(path?: string) {
+    if (!path) return undefined;
+    const normalized = normalizePath(path);
+    return mediaFilesRef.current.get(normalized) ?? mediaFilesRef.current.get(normalized.split("/").at(-1) ?? normalized);
+  }
+
   function resolveMedia(path?: string) {
     if (!path) return undefined;
     const normalized = normalizePath(path);
     if (mediaUrlsRef.current.has(normalized)) return mediaUrlsRef.current.get(normalized);
-    const file = mediaFilesRef.current.get(normalized) ?? mediaFilesRef.current.get(normalized.split("/").at(-1) ?? normalized);
+    const file = mediaFile(normalized);
     if (!file) return undefined;
     const url = URL.createObjectURL(file);
     mediaUrlsRef.current.set(normalized, url);
     return url;
+  }
+
+  function openMediaViewer(path: string, label: string, alt: string) {
+    const file = mediaFile(path);
+    if (!file) return;
+    if (viewerUrlRef.current) URL.revokeObjectURL(viewerUrlRef.current);
+    const url = URL.createObjectURL(file);
+    viewerUrlRef.current = url;
+    setViewerMedia({ url, label, alt });
   }
 
   async function loadFiles(fileList: FileList | File[]) {
@@ -528,6 +551,7 @@ export default function Home() {
     try {
       const data = JSON.parse(await jsonFile.text()) as RawExport;
       const nextChat = extractChat(data);
+      closeMediaViewer();
       resetObjectUrls();
       const media = new Map<string, File>();
       files.forEach((file) => {
@@ -547,7 +571,6 @@ export default function Home() {
       setMediaFilter("all");
       setMonthFilter("all");
       setVisibleLimit(240);
-      setViewerMedia(null);
       requestAnimationFrame(() => messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "This file could not be read as a Telegram export.");
@@ -613,7 +636,7 @@ export default function Home() {
     if (kind === "photos" && url) {
       const alt = messageText(message) || label;
       return wrapSpoiler(
-        <button className="media-photo" type="button" onClick={() => setViewerMedia({ url, label, alt })} aria-label={`View ${label}`}>
+        <button className="media-photo" type="button" onClick={() => openMediaViewer(path, label, alt)} aria-label={`View ${label}`}>
           {/* Browser-created object URLs never leave this device. */}
           <img src={url} alt={alt} />
         </button>,
@@ -879,18 +902,18 @@ export default function Home() {
           aria-modal="true"
           aria-label={`Viewing ${viewerMedia.label}`}
           onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setViewerMedia(null);
+            if (event.currentTarget === event.target) closeMediaViewer();
           }}
         >
           <div className="media-viewer-toolbar">
             <div><strong>{viewerMedia.label}</strong><span>Photo from this archive</span></div>
             <a href={viewerMedia.url} download={viewerMedia.label} aria-label="Download photo">↓</a>
-            <button type="button" onClick={() => setViewerMedia(null)} aria-label="Close photo viewer" autoFocus>×</button>
+            <button type="button" onClick={closeMediaViewer} aria-label="Close photo viewer" autoFocus>×</button>
           </div>
           <div
             className="media-viewer-stage"
             onMouseDown={(event) => {
-              if (event.currentTarget === event.target) setViewerMedia(null);
+              if (event.currentTarget === event.target) closeMediaViewer();
             }}
           >
             <img src={viewerMedia.url} alt={viewerMedia.alt} />

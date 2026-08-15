@@ -47,7 +47,9 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /poster=\{poster\}/);
   assert.match(page, /<source src=\{url\} type=/);
   assert.match(page, /preload=\{animation \? "auto" : "metadata"\}/);
-  assert.equal((page.match(/URL\.revokeObjectURL/g) ?? []).length, 1);
+  assert.match(page, /viewerUrlRef/);
+  assert.match(page, /openMediaViewer\(path, label, alt\)/);
+  assert.match(page, /closeMediaViewer/);
   assert.match(page, /role="dialog"/);
   assert.match(page, /Close photo viewer/);
   assert.match(layout, /Stillgram/);
