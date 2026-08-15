@@ -39,6 +39,8 @@ type TelegramMessage = {
   saved_from?: string;
   photo?: string;
   file?: string;
+  file_name?: string;
+  file_size?: number;
   thumbnail?: string;
   media_type?: string;
   mime_type?: string;
@@ -46,6 +48,17 @@ type TelegramMessage = {
   width?: number;
   height?: number;
   sticker_emoji?: string;
+  media_spoiler?: boolean;
+  discard_reason?: string;
+  is_missed?: boolean;
+  reactions?: Array<{
+    type?: string;
+    count?: number;
+    emoji?: string;
+    document_id?: string;
+    recent?: Array<{ from?: string; from_id?: string; date?: string }>;
+  }>;
+  inline_bot_buttons?: Array<Array<{ text?: string; type?: string; data?: string }>>;
   contact_information?: { first_name?: string; last_name?: string; phone_number?: string };
   location_information?: { latitude?: number; longitude?: number };
   poll?: { question?: string; answers?: Array<{ text?: string; voters?: number; chosen?: boolean }> };
@@ -186,7 +199,7 @@ function mediaKind(message: TelegramMessage): MediaFilter | null {
   const mime = message.mime_type ?? "";
   const type = message.media_type ?? "";
   if (message.photo || mime.startsWith("image/") || type === "photo") return "photos";
-  if (mime.startsWith("video/") || type === "video_file" || type === "animation") return "videos";
+  if (mime.startsWith("video/") || type === "video_file" || type === "animation" || type === "video_message") return "videos";
   if (mime.startsWith("audio/") || type === "voice_message" || type === "audio_file") return "voice";
   if (message.file) return "files";
   if (/https?:\/\//i.test(messageText(message))) return "links";
@@ -203,9 +216,31 @@ function formatDuration(seconds?: number) {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function formatFileSize(bytes?: number) {
+  if (!bytes || bytes < 1) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** index;
+  return `${value >= 10 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
+}
+
 function safeHref(href: string) {
   if (/^(https?:|mailto:|tel:)/i.test(href)) return href;
   return undefined;
+}
+
+function serviceMessageText(message: TelegramMessage) {
+  const existing = messageText(message);
+  if (existing) return existing;
+  const actor = message.actor ?? "Someone";
+  if (message.action === "phone_call") {
+    const callType = message.is_missed || message.discard_reason === "missed" ? "Missed call" : "Call";
+    return `${actor} · ${callType}${message.duration_seconds ? ` · ${formatDuration(message.duration_seconds)}` : ""}`;
+  }
+  if (message.action === "conference_call") return `${actor} started a conference call`;
+  if (message.action === "joined_telegram") return `${actor} joined Telegram`;
+  if (message.action === "send_star_gift" || message.action === "send_stars_gift") return `${actor} sent a Telegram gift`;
+  return `${actor} ${message.action?.replaceAll("_", " ") ?? "updated the chat"}`;
 }
 
 function highlightText(text: string, query: string): ReactNode {
@@ -231,6 +266,8 @@ function renderRichText(message: TelegramMessage, query: string) {
     if (["underline"].includes(type)) return <u key={index}>{content}</u>;
     if (["strikethrough"].includes(type)) return <s key={index}>{content}</s>;
     if (["code", "pre"].includes(type)) return <code key={index}>{content}</code>;
+    if (type === "blockquote") return <span className="inline-blockquote" key={index}>{content}</span>;
+    if (type === "spoiler") return <span className="text-spoiler" key={index} tabIndex={0}>{content}</span>;
     if (["link", "text_link", "email", "phone"].includes(type)) {
       const fallback = type === "email" ? `mailto:${text}` : type === "phone" ? `tel:${text}` : text;
       const href = safeHref(part.href ?? fallback);
@@ -298,7 +335,12 @@ export default function Home() {
 
   const otherName = chat.name ?? participants[0] ?? "Contact";
   const meName = participants.find((name) => name !== otherName) ?? participants[1] ?? "You";
-  const isMine = (message: TelegramMessage) => (message.from ?? message.actor) === meName;
+  const peerIdDigits = String(chat.id ?? "").replace(/\D/g, "");
+  const isMine = (message: TelegramMessage) => {
+    const senderIdDigits = String(message.from_id ?? message.actor_id ?? "").replace(/\D/g, "");
+    if (peerIdDigits && senderIdDigits) return senderIdDigits !== peerIdDigits;
+    return (message.from ?? message.actor) === meName;
+  };
 
   const months = useMemo(() => {
     const unique = new Map<string, Date>();
@@ -423,17 +465,32 @@ export default function Home() {
     if (!path) return null;
     const url = resolveMedia(path);
     const kind = mediaKind(message);
-    const label = path.split(/[\\/]/).at(-1) ?? "Attachment";
+    const label = message.file_name ?? path.split(/[\\/]/).at(-1) ?? "Attachment";
+    const wrapSpoiler = (content: ReactNode) => message.media_spoiler ? (
+      <details className="media-spoiler">
+        <summary>Reveal media spoiler</summary>
+        {content}
+      </details>
+    ) : content;
+
+    if (message.media_type === "sticker" && message.mime_type === "application/x-tgsticker") {
+      return (
+        <div className="sticker-fallback" title="Animated Telegram sticker">
+          <span>{message.sticker_emoji || "✦"}</span>
+          <small>Animated sticker</small>
+        </div>
+      );
+    }
 
     if (kind === "photos" && url) {
-      return (
+      return wrapSpoiler(
         <a className="media-photo" href={url} target="_blank" rel="noreferrer" aria-label={`Open ${label}`}>
           {/* Browser-created object URLs never leave this device. */}
           <img src={url} alt={messageText(message) || label} />
-        </a>
+        </a>,
       );
     }
-    if (kind === "videos" && url) return <video className="media-video" src={url} controls preload="metadata" />;
+    if (kind === "videos" && url) return wrapSpoiler(<video className={`media-video${message.media_type === "video_message" ? " round-video" : ""}`} src={url} controls preload="metadata" />);
     if (kind === "voice" && url) {
       return (
         <div className="media-audio">
@@ -448,7 +505,7 @@ export default function Home() {
         <span className="file-icon">{kind === "photos" ? "IMG" : kind === "videos" ? "VID" : kind === "voice" ? "AUD" : "FILE"}</span>
         <span>
           <strong>{label}</strong>
-          <small>{url ? "Open attachment" : "Select the full export folder to open media"}</small>
+          <small>{url ? [formatFileSize(message.file_size), "Open attachment"].filter(Boolean).join(" · ") : "Select the full export folder to open media"}</small>
         </span>
       </a>
     );
@@ -599,7 +656,7 @@ export default function Home() {
                   <Fragment key={`${message.id}-${index}`}>
                     {showDate && <div className="date-divider"><span>{dayFormatter.format(safeDate(message))}</span></div>}
                     {service ? (
-                      <div className="service-message">{messageText(message) || `${message.actor ?? "Someone"} ${message.action?.replaceAll("_", " ") ?? "updated the chat"}`}</div>
+                      <div className="service-message">{serviceMessageText(message)}</div>
                     ) : (
                       <article id={`message-${message.id}`} className={`message-row ${mine ? "mine" : "theirs"}`}>
                         {!mine && <div className="avatar tiny">{initials(message.from ?? otherName)}</div>}
@@ -628,6 +685,20 @@ export default function Home() {
                               <a className="location-card" href={`https://www.openstreetmap.org/?mlat=${message.location_information.latitude}&mlon=${message.location_information.longitude}`} target="_blank" rel="noreferrer">⌖ <span><strong>Shared location</strong><small>Open in map</small></span></a>
                             )}
                             {messageText(message) && <p className="message-copy">{renderRichText(message, deferredQuery)}</p>}
+                            {message.inline_bot_buttons?.length ? (
+                              <div className="bot-buttons">
+                                {message.inline_bot_buttons.flat().map((button, buttonIndex) => <span key={buttonIndex}>{button.text || "Telegram button"}</span>)}
+                              </div>
+                            ) : null}
+                            {message.reactions?.length ? (
+                              <div className="reactions" aria-label="Message reactions">
+                                {message.reactions.map((reaction, reactionIndex) => (
+                                  <span key={`${reaction.emoji ?? reaction.document_id ?? "reaction"}-${reactionIndex}`} title={reaction.recent?.map((item) => item.from).filter(Boolean).join(", ") || undefined}>
+                                    {reaction.emoji || "✦"}<b>{reaction.count ?? 1}</b>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
                             <span className="message-meta">{message.edited && <span>edited</span>}{timeFormatter.format(safeDate(message))}</span>
                           </div>
                         </div>
