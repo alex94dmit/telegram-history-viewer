@@ -22,9 +22,10 @@ test("server-renders the Stillgram archive viewer", async () => {
   const html = await response.text();
   assert.match(html, /<title>Stillgram — Private Telegram archive viewer<\/title>/i);
   assert.match(html, /Stillgram/);
-  assert.match(html, /Private chat archive/);
-  assert.match(html, /On-device only/);
-  assert.match(html, /Open export/);
+  assert.match(html, /local archive/);
+  assert.match(html, /Private archive/);
+  assert.match(html, /Open Telegram export/);
+  assert.match(html, /Message filters/);
   assert.match(html, /Sample archive/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });

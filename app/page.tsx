@@ -186,6 +186,14 @@ function monthKey(message: TelegramMessage) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function sameMessageGroup(first?: TelegramMessage, second?: TelegramMessage) {
+  if (!first || !second || first.type === "service" || second.type === "service") return false;
+  const firstSender = first.from_id ?? first.from;
+  const secondSender = second.from_id ?? second.from;
+  const gap = Math.abs(safeDate(second).getTime() - safeDate(first).getTime());
+  return firstSender === secondSender && dayKey(first) === dayKey(second) && gap <= 5 * 60 * 1000;
+}
+
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -222,6 +230,61 @@ function formatFileSize(bytes?: number) {
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / 1024 ** index;
   return `${value >= 10 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
+}
+
+function TelegramAudio({ src, duration }: { src: string; duration?: number }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [knownDuration, setKnownDuration] = useState(duration ?? 0);
+  const bars = [7, 12, 16, 10, 19, 13, 8, 17, 21, 12, 15, 9, 18, 14, 20, 11, 16, 8, 13, 18, 10, 15];
+  const progress = knownDuration ? Math.min(100, (currentTime / knownDuration) * 100) : 0;
+
+  async function toggle() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      await audio.play();
+      setPlaying(true);
+    } else {
+      audio.pause();
+      setPlaying(false);
+    }
+  }
+
+  return (
+    <div className="telegram-audio">
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        onLoadedMetadata={(event) => setKnownDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : duration ?? 0)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onEnded={() => setPlaying(false)}
+      />
+      <button type="button" onClick={() => void toggle()} aria-label={playing ? "Pause voice message" : "Play voice message"}>{playing ? "Ⅱ" : "▶"}</button>
+      <div className="audio-track">
+        <input
+          type="range"
+          min="0"
+          max={knownDuration || 1}
+          step="0.1"
+          value={currentTime}
+          onChange={(event) => {
+            const value = Number(event.target.value);
+            setCurrentTime(value);
+            if (audioRef.current) audioRef.current.currentTime = value;
+          }}
+          aria-label="Voice message position"
+        />
+        <div className="waveform" aria-hidden="true">
+          <div className="waveform-base">{bars.map((height, index) => <i key={index} style={{ height }} />)}</div>
+          <div className="waveform-progress" style={{ width: `${progress}%` }}>{bars.map((height, index) => <i key={index} style={{ height }} />)}</div>
+        </div>
+        <small>{formatDuration(Math.round(currentTime || knownDuration))}</small>
+      </div>
+    </div>
+  );
 }
 
 function safeHref(href: string) {
@@ -364,6 +427,8 @@ export default function Home() {
 
   const visibleMessages = filteredMessages.slice(-visibleLimit);
   const hiddenCount = Math.max(0, filteredMessages.length - visibleMessages.length);
+  const latestMessage = chat.messages.at(-1);
+  const latestPreview = latestMessage ? (messageText(latestMessage) || (mediaKind(latestMessage) ? "Attachment" : serviceMessageText(latestMessage))) : "No messages";
 
   const stats = useMemo(() => {
     const media = { photos: 0, videos: 0, voice: 0, files: 0, links: 0 };
@@ -492,13 +557,7 @@ export default function Home() {
     }
     if (kind === "videos" && url) return wrapSpoiler(<video className={`media-video${message.media_type === "video_message" ? " round-video" : ""}`} src={url} controls preload="metadata" />);
     if (kind === "voice" && url) {
-      return (
-        <div className="media-audio">
-          <span className="play-dot">▶</span>
-          <audio src={url} controls preload="metadata" />
-          <span>{formatDuration(message.duration_seconds)}</span>
-        </div>
-      );
+      return <TelegramAudio src={url} duration={message.duration_seconds} />;
     }
     return (
       <a className={`file-card${url ? "" : " is-missing"}`} href={url} download={url ? label : undefined} onClick={(event) => !url && event.preventDefault()}>
@@ -533,49 +592,38 @@ export default function Home() {
       />
       <input ref={jsonInputRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={onFolderChange} />
 
-      <header className="topbar">
-        <div className="brand" aria-label="Stillgram home">
-          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
-          <span>
-            <strong>Stillgram</strong>
-            <small>Private chat archive</small>
-          </span>
-        </div>
-        <div className="topbar-actions">
-          <span className="privacy-badge"><span>●</span> On-device only</span>
-          <button className="icon-button" type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`}>
-            {theme === "light" ? "☾" : "☀"}
-          </button>
-          <button className="primary-button compact" type="button" onClick={() => folderInputRef.current?.click()}>
-            <span aria-hidden="true">＋</span> Open export
-          </button>
-        </div>
-      </header>
-
       <section className="workspace">
         <aside className="sidebar">
-          <div className="archive-heading">
-            <div className="avatar large">{initials(otherName)}</div>
-            <div>
-              <span className="eyebrow">Conversation with</span>
-              <h1>{otherName}</h1>
-              <p>{chat.messages.length.toLocaleString()} messages</p>
-            </div>
+          <div className="sidebar-toolbar">
+            <button className="telegram-menu" type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`}>
+              {theme === "light" ? "☰" : "☀"}
+            </button>
+            <div className="telegram-brand"><strong>Stillgram</strong><small>local archive</small></div>
+            <button className="telegram-compose" type="button" onClick={() => folderInputRef.current?.click()} aria-label="Open Telegram export">＋</button>
           </div>
 
+          <div className="chat-list-label">Chats</div>
+          <button className="chat-list-row selected" type="button" onClick={clearFilters}>
+            <div className="avatar large">{initials(otherName)}</div>
+            <div className="chat-list-copy">
+              <span><strong>{otherName}</strong><time>{latestMessage ? shortDateFormatter.format(safeDate(latestMessage)) : ""}</time></span>
+              <p>{latestPreview}</p>
+            </div>
+          </button>
+
           <div className="archive-source">
-            <span className="source-icon">⌁</span>
+            <span className="source-icon">✓</span>
             <div>
               <strong>{sourceLabel}</strong>
-              <small>{isDemo ? "Explore the sample, then open yours" : "Loaded locally in this tab"}</small>
+              <small>{isDemo ? "Sample conversation" : "On-device only · loaded locally"}</small>
             </div>
           </div>
 
           <nav className="filter-section" aria-label="Message filters">
-            <span className="section-label">Show messages</span>
-            <button className={senderFilter === "all" ? "active" : ""} onClick={() => setSenderFilter("all")} type="button"><span>▦</span> Everything <b>{chat.messages.length.toLocaleString()}</b></button>
-            <button className={senderFilter === "me" ? "active" : ""} onClick={() => setSenderFilter("me")} type="button"><span>↗</span> From you</button>
-            <button className={senderFilter === "them" ? "active" : ""} onClick={() => setSenderFilter("them")} type="button"><span>↙</span> From {otherName.split(" ")[0]}</button>
+            <span className="section-label">Message filters</span>
+            <button className={senderFilter === "all" ? "active" : ""} onClick={() => setSenderFilter("all")} type="button"><span>☷</span> All messages <b>{chat.messages.length.toLocaleString()}</b></button>
+            <button className={senderFilter === "me" ? "active" : ""} onClick={() => setSenderFilter("me")} type="button"><span>↗</span> Sent by you</button>
+            <button className={senderFilter === "them" ? "active" : ""} onClick={() => setSenderFilter("them")} type="button"><span>↙</span> Sent by {otherName.split(" ")[0]}</button>
           </nav>
 
           <div className="filter-section media-filters">
@@ -594,17 +642,16 @@ export default function Home() {
           </div>
 
           <div className="sidebar-foot">
-            <span className="section-label">Archive span</span>
-            <strong>{stats.first ? shortDateFormatter.format(stats.first) : "—"} <span>→</span> {stats.last ? shortDateFormatter.format(stats.last) : "—"}</strong>
-            <p>Your files stay in this browser tab. Closing it clears the loaded archive.</p>
+            <span className="privacy-dot">●</span>
+            <p><strong>Private archive</strong>Your files stay in this browser tab.</p>
           </div>
         </aside>
 
         <section className="conversation-panel">
           <div className="conversation-toolbar">
-            <div className="mobile-title">
+            <div className="chat-header-title">
               <div className="avatar">{initials(otherName)}</div>
-              <span><strong>{otherName}</strong><small>{chat.messages.length.toLocaleString()} messages</small></span>
+              <span><strong>{otherName}</strong><small>{chat.messages.length.toLocaleString()} archived messages</small></span>
             </div>
             <label className="search-box">
               <span aria-hidden="true">⌕</span>
@@ -631,6 +678,20 @@ export default function Home() {
 
           {error && <div className="error-banner" role="alert"><strong>Couldn’t open that export.</strong><span>{error}</span><button type="button" onClick={() => setError("")}>×</button></div>}
 
+          <div className="mobile-filter-bar" aria-label="Mobile message filters">
+            <button className={senderFilter === "all" ? "active" : ""} type="button" onClick={() => setSenderFilter("all")}>All</button>
+            <button className={senderFilter === "me" ? "active" : ""} type="button" onClick={() => setSenderFilter("me")}>You</button>
+            <button className={senderFilter === "them" ? "active" : ""} type="button" onClick={() => setSenderFilter("them")}>{otherName.split(" ")[0]}</button>
+            <select value={mediaFilter} onChange={(event) => setMediaFilter(event.target.value as MediaFilter)} aria-label="Filter media">
+              <option value="all">All types</option>
+              <option value="photos">Photos</option>
+              <option value="videos">Videos</option>
+              <option value="voice">Audio</option>
+              <option value="files">Files</option>
+              <option value="links">Links</option>
+            </select>
+          </div>
+
           <div className="message-list" ref={messageListRef}>
             {hiddenCount > 0 && (
               <button className="load-older" type="button" onClick={() => setVisibleLimit((limit) => limit + 300)}>
@@ -648,8 +709,11 @@ export default function Home() {
             ) : (
               visibleMessages.map((message, index) => {
                 const previous = visibleMessages[index - 1];
+                const next = visibleMessages[index + 1];
                 const showDate = !previous || dayKey(previous) !== dayKey(message);
                 const mine = isMine(message);
+                const joinsPrevious = sameMessageGroup(previous, message);
+                const joinsNext = sameMessageGroup(message, next);
                 const reply = message.reply_to_message_id ? messagesById.get(String(message.reply_to_message_id)) : undefined;
                 const service = message.type === "service";
                 return (
@@ -658,11 +722,10 @@ export default function Home() {
                     {service ? (
                       <div className="service-message">{serviceMessageText(message)}</div>
                     ) : (
-                      <article id={`message-${message.id}`} className={`message-row ${mine ? "mine" : "theirs"}`}>
-                        {!mine && <div className="avatar tiny">{initials(message.from ?? otherName)}</div>}
+                      <article id={`message-${message.id}`} className={`message-row ${mine ? "mine" : "theirs"}${joinsPrevious ? " joins-previous" : ""}${joinsNext ? " joins-next" : ""}`}>
                         <div className="bubble-wrap">
-                          {message.forwarded_from && <div className="forwarded">Forwarded from {message.forwarded_from}</div>}
                           <div className="message-bubble">
+                            {message.forwarded_from && <div className="forwarded">Forwarded from {message.forwarded_from}</div>}
                             {reply && (
                               <button className="reply-preview" type="button" onClick={() => scrollToMessage(reply.id)}>
                                 <strong>{reply.from ?? "Message"}</strong>
