@@ -1,0 +1,648 @@
+"use client";
+
+import {
+  ChangeEvent,
+  DragEvent,
+  Fragment,
+  KeyboardEvent,
+  ReactNode,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+type RichTextPart =
+  | string
+  | {
+      type?: string;
+      text?: string;
+      href?: string;
+    };
+
+type TelegramMessage = {
+  id: number | string;
+  type?: string;
+  date?: string;
+  date_unixtime?: string;
+  edited?: string;
+  from?: string;
+  from_id?: string;
+  actor?: string;
+  actor_id?: string;
+  action?: string;
+  text?: string | RichTextPart[];
+  text_entities?: RichTextPart[];
+  reply_to_message_id?: number | string;
+  forwarded_from?: string;
+  saved_from?: string;
+  photo?: string;
+  file?: string;
+  thumbnail?: string;
+  media_type?: string;
+  mime_type?: string;
+  duration_seconds?: number;
+  width?: number;
+  height?: number;
+  sticker_emoji?: string;
+  contact_information?: { first_name?: string; last_name?: string; phone_number?: string };
+  location_information?: { latitude?: number; longitude?: number };
+  poll?: { question?: string; answers?: Array<{ text?: string; voters?: number; chosen?: boolean }> };
+};
+
+type TelegramChat = {
+  name?: string;
+  type?: string;
+  id?: number | string;
+  messages: TelegramMessage[];
+};
+
+type RawExport = TelegramChat & {
+  chats?: { list?: TelegramChat[] };
+};
+
+type SenderFilter = "all" | "me" | "them";
+type MediaFilter = "all" | "photos" | "videos" | "voice" | "files" | "links";
+
+const demoChat: TelegramChat = {
+  name: "Alex Chen",
+  type: "personal_chat",
+  id: 12804019,
+  messages: [
+    {
+      id: 101,
+      type: "message",
+      date: "2024-03-14T18:42:00",
+      from: "Alex Chen",
+      from_id: "user12804019",
+      text: "I found the tiny bookstore I was telling you about.",
+    },
+    {
+      id: 102,
+      type: "message",
+      date: "2024-03-14T18:43:00",
+      from: "Jamie",
+      from_id: "user901121",
+      text: "The one with the blue door?",
+    },
+    {
+      id: 103,
+      type: "message",
+      date: "2024-03-14T18:44:00",
+      from: "Alex Chen",
+      from_id: "user12804019",
+      text: [
+        "Yes — and it has a reading room upstairs. ",
+        { type: "italic", text: "Dangerous for my wallet." },
+      ],
+    },
+    {
+      id: 104,
+      type: "message",
+      date: "2024-03-14T18:46:00",
+      from: "Jamie",
+      from_id: "user901121",
+      reply_to_message_id: 103,
+      text: "Saturday morning? I’ll bring coffee.",
+    },
+    {
+      id: 105,
+      type: "message",
+      date: "2024-03-14T18:48:00",
+      from: "Alex Chen",
+      from_id: "user12804019",
+      text: [
+        "Perfect. Here’s the place: ",
+        { type: "link", text: "Open map", href: "https://maps.google.com" },
+      ],
+    },
+    {
+      id: 106,
+      type: "message",
+      date: "2024-05-02T09:11:00",
+      from: "Jamie",
+      from_id: "user901121",
+      text: "Still laughing about the cat asleep in the poetry section.",
+    },
+    {
+      id: 107,
+      type: "message",
+      date: "2024-05-02T09:14:00",
+      from: "Alex Chen",
+      from_id: "user12804019",
+      text: "Best employee there, honestly. 🐈",
+    },
+  ],
+};
+
+const monthFormatter = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
+const dayFormatter = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+});
+const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const shortDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+function messageText(message: TelegramMessage): string {
+  const source = message.text_entities ?? message.text ?? "";
+  if (typeof source === "string") return source;
+  if (!Array.isArray(source)) return "";
+  return source.map((part) => (typeof part === "string" ? part : part.text ?? "")).join("");
+}
+
+function normalizePath(path: string) {
+  return path.replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+function safeDate(message: TelegramMessage) {
+  const raw = message.date ?? (message.date_unixtime ? Number(message.date_unixtime) * 1000 : undefined);
+  const date = raw ? new Date(raw) : new Date(0);
+  return Number.isNaN(date.getTime()) ? new Date(0) : date;
+}
+
+function dayKey(message: TelegramMessage) {
+  const date = safeDate(message);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function monthKey(message: TelegramMessage) {
+  const date = safeDate(message);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "TG";
+}
+
+function mediaKind(message: TelegramMessage): MediaFilter | null {
+  const mime = message.mime_type ?? "";
+  const type = message.media_type ?? "";
+  if (message.photo || mime.startsWith("image/") || type === "photo") return "photos";
+  if (mime.startsWith("video/") || type === "video_file" || type === "animation") return "videos";
+  if (mime.startsWith("audio/") || type === "voice_message" || type === "audio_file") return "voice";
+  if (message.file) return "files";
+  if (/https?:\/\//i.test(messageText(message))) return "links";
+  const entities = message.text_entities ?? (Array.isArray(message.text) ? message.text : []);
+  if (Array.isArray(entities) && entities.some((part) => typeof part !== "string" && ["link", "text_link"].includes(part.type ?? ""))) {
+    return "links";
+  }
+  return null;
+}
+
+function formatDuration(seconds?: number) {
+  if (!seconds) return "";
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function safeHref(href: string) {
+  if (/^(https?:|mailto:|tel:)/i.test(href)) return href;
+  return undefined;
+}
+
+function highlightText(text: string, query: string): ReactNode {
+  if (!query.trim()) return text;
+  const needle = query.trim();
+  const parts = text.split(new RegExp(`(${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"));
+  return parts.map((part, index) =>
+    part.toLocaleLowerCase().includes(needle.toLocaleLowerCase()) ? <mark key={index}>{part}</mark> : part,
+  );
+}
+
+function renderRichText(message: TelegramMessage, query: string) {
+  const source = message.text_entities ?? message.text ?? "";
+  const parts: RichTextPart[] = typeof source === "string" ? [source] : Array.isArray(source) ? source : [];
+
+  return parts.map((part, index) => {
+    if (typeof part === "string") return <Fragment key={index}>{highlightText(part, query)}</Fragment>;
+    const text = part.text ?? "";
+    const content = highlightText(text, query);
+    const type = part.type ?? "";
+    if (["bold"].includes(type)) return <strong key={index}>{content}</strong>;
+    if (["italic"].includes(type)) return <em key={index}>{content}</em>;
+    if (["underline"].includes(type)) return <u key={index}>{content}</u>;
+    if (["strikethrough"].includes(type)) return <s key={index}>{content}</s>;
+    if (["code", "pre"].includes(type)) return <code key={index}>{content}</code>;
+    if (["link", "text_link", "email", "phone"].includes(type)) {
+      const fallback = type === "email" ? `mailto:${text}` : type === "phone" ? `tel:${text}` : text;
+      const href = safeHref(part.href ?? fallback);
+      return href ? (
+        <a key={index} href={href} target="_blank" rel="noreferrer">
+          {content}
+        </a>
+      ) : (
+        <Fragment key={index}>{content}</Fragment>
+      );
+    }
+    return <Fragment key={index}>{content}</Fragment>;
+  });
+}
+
+function extractChat(data: RawExport): TelegramChat {
+  if (Array.isArray(data.messages)) return data;
+  const chats = data.chats?.list?.filter((chat) => Array.isArray(chat.messages)) ?? [];
+  if (!chats.length) throw new Error("No Telegram messages were found in this JSON file.");
+  return chats.reduce((largest, chat) => (chat.messages.length > largest.messages.length ? chat : largest), chats[0]);
+}
+
+export default function Home() {
+  const [chat, setChat] = useState<TelegramChat>(demoChat);
+  const [isDemo, setIsDemo] = useState(true);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [senderFilter, setSenderFilter] = useState<SenderFilter>("all");
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [visibleLimit, setVisibleLimit] = useState(240);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState("");
+  const [sourceLabel, setSourceLabel] = useState("Sample archive");
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const jsonInputRef = useRef<HTMLInputElement>(null);
+  const mediaFilesRef = useRef(new Map<string, File>());
+  const mediaUrlsRef = useRef(new Map<string, string>());
+  const messageListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  useEffect(() => {
+    return () => {
+      mediaUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  const messagesById = useMemo(
+    () => new Map(chat.messages.map((message) => [String(message.id), message])),
+    [chat.messages],
+  );
+
+  const participants = useMemo(() => {
+    const counts = new Map<string, number>();
+    chat.messages.forEach((message) => {
+      const name = message.from ?? message.actor;
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    });
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  }, [chat.messages]);
+
+  const otherName = chat.name ?? participants[0] ?? "Contact";
+  const meName = participants.find((name) => name !== otherName) ?? participants[1] ?? "You";
+  const isMine = (message: TelegramMessage) => (message.from ?? message.actor) === meName;
+
+  const months = useMemo(() => {
+    const unique = new Map<string, Date>();
+    chat.messages.forEach((message) => unique.set(monthKey(message), safeDate(message)));
+    return [...unique.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [chat.messages]);
+
+  const filteredMessages = useMemo(() => {
+    const needle = deferredQuery.trim().toLocaleLowerCase();
+    return chat.messages.filter((message) => {
+      if (senderFilter === "me" && !isMine(message)) return false;
+      if (senderFilter === "them" && isMine(message)) return false;
+      if (monthFilter !== "all" && monthKey(message) !== monthFilter) return false;
+      if (mediaFilter !== "all" && mediaKind(message) !== mediaFilter) return false;
+      if (needle && !`${messageText(message)} ${message.from ?? ""} ${message.forwarded_from ?? ""}`.toLocaleLowerCase().includes(needle)) {
+        return false;
+      }
+      return true;
+    });
+  }, [chat.messages, deferredQuery, senderFilter, monthFilter, mediaFilter, meName]);
+
+  const visibleMessages = filteredMessages.slice(-visibleLimit);
+  const hiddenCount = Math.max(0, filteredMessages.length - visibleMessages.length);
+
+  const stats = useMemo(() => {
+    const media = { photos: 0, videos: 0, voice: 0, files: 0, links: 0 };
+    chat.messages.forEach((message) => {
+      const kind = mediaKind(message);
+      if (kind) media[kind] += 1;
+    });
+    const first = chat.messages[0] ? safeDate(chat.messages[0]) : undefined;
+    const last = chat.messages.at(-1) ? safeDate(chat.messages.at(-1)!) : undefined;
+    return { ...media, first, last };
+  }, [chat.messages]);
+
+  function resetObjectUrls() {
+    mediaUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    mediaUrlsRef.current.clear();
+  }
+
+  function resolveMedia(path?: string) {
+    if (!path) return undefined;
+    const normalized = normalizePath(path);
+    if (mediaUrlsRef.current.has(normalized)) return mediaUrlsRef.current.get(normalized);
+    const file = mediaFilesRef.current.get(normalized) ?? mediaFilesRef.current.get(normalized.split("/").at(-1) ?? normalized);
+    if (!file) return undefined;
+    const url = URL.createObjectURL(file);
+    mediaUrlsRef.current.set(normalized, url);
+    return url;
+  }
+
+  async function loadFiles(fileList: FileList | File[]) {
+    setError("");
+    const files = Array.from(fileList);
+    const jsonFile = files.find((file) => file.name.toLocaleLowerCase() === "result.json") ?? files.find((file) => file.name.endsWith(".json"));
+    if (!jsonFile) {
+      setError("Choose the Telegram export folder or its result.json file.");
+      return;
+    }
+
+    try {
+      const data = JSON.parse(await jsonFile.text()) as RawExport;
+      const nextChat = extractChat(data);
+      resetObjectUrls();
+      const media = new Map<string, File>();
+      files.forEach((file) => {
+        const relative = normalizePath(file.webkitRelativePath || file.name);
+        media.set(relative, file);
+        const withoutRoot = relative.includes("/") ? relative.slice(relative.indexOf("/") + 1) : relative;
+        media.set(withoutRoot, file);
+        if (!media.has(file.name)) media.set(file.name, file);
+      });
+      mediaFilesRef.current = media;
+      setChat({ ...nextChat, messages: nextChat.messages.slice().sort((a, b) => safeDate(a).getTime() - safeDate(b).getTime()) });
+      setIsDemo(false);
+      setSourceLabel(jsonFile.webkitRelativePath?.split("/")[0] || jsonFile.name);
+      setQuery("");
+      setSenderFilter("all");
+      setMediaFilter("all");
+      setMonthFilter("all");
+      setVisibleLimit(240);
+      requestAnimationFrame(() => messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight }));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "This file could not be read as a Telegram export.");
+    }
+  }
+
+  function onFolderChange(event: ChangeEvent<HTMLInputElement>) {
+    if (event.target.files?.length) void loadFiles(event.target.files);
+    event.target.value = "";
+  }
+
+  function onDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragging(false);
+    if (event.dataTransfer.files.length) void loadFiles(event.dataTransfer.files);
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setSenderFilter("all");
+    setMediaFilter("all");
+    setMonthFilter("all");
+    setVisibleLimit(240);
+  }
+
+  function scrollToMessage(id: number | string) {
+    const element = document.getElementById(`message-${id}`);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      element.classList.add("message-flash");
+      window.setTimeout(() => element.classList.remove("message-flash"), 1400);
+    }
+  }
+
+  function searchKeyboard(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") setQuery("");
+  }
+
+  function renderMedia(message: TelegramMessage) {
+    const path = message.photo ?? message.file;
+    if (!path) return null;
+    const url = resolveMedia(path);
+    const kind = mediaKind(message);
+    const label = path.split(/[\\/]/).at(-1) ?? "Attachment";
+
+    if (kind === "photos" && url) {
+      return (
+        <a className="media-photo" href={url} target="_blank" rel="noreferrer" aria-label={`Open ${label}`}>
+          {/* Browser-created object URLs never leave this device. */}
+          <img src={url} alt={messageText(message) || label} />
+        </a>
+      );
+    }
+    if (kind === "videos" && url) return <video className="media-video" src={url} controls preload="metadata" />;
+    if (kind === "voice" && url) {
+      return (
+        <div className="media-audio">
+          <span className="play-dot">▶</span>
+          <audio src={url} controls preload="metadata" />
+          <span>{formatDuration(message.duration_seconds)}</span>
+        </div>
+      );
+    }
+    return (
+      <a className={`file-card${url ? "" : " is-missing"}`} href={url} download={url ? label : undefined} onClick={(event) => !url && event.preventDefault()}>
+        <span className="file-icon">{kind === "photos" ? "IMG" : kind === "videos" ? "VID" : kind === "voice" ? "AUD" : "FILE"}</span>
+        <span>
+          <strong>{label}</strong>
+          <small>{url ? "Open attachment" : "Select the full export folder to open media"}</small>
+        </span>
+      </a>
+    );
+  }
+
+  return (
+    <main
+      className={`app-shell${dragging ? " is-dragging" : ""}`}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) setDragging(false);
+      }}
+      onDrop={onDrop}
+    >
+      <input
+        ref={folderInputRef}
+        className="visually-hidden"
+        type="file"
+        onChange={onFolderChange}
+        {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+      />
+      <input ref={jsonInputRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={onFolderChange} />
+
+      <header className="topbar">
+        <div className="brand" aria-label="Stillgram home">
+          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          <span>
+            <strong>Stillgram</strong>
+            <small>Private chat archive</small>
+          </span>
+        </div>
+        <div className="topbar-actions">
+          <span className="privacy-badge"><span>●</span> On-device only</span>
+          <button className="icon-button" type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`}>
+            {theme === "light" ? "☾" : "☀"}
+          </button>
+          <button className="primary-button compact" type="button" onClick={() => folderInputRef.current?.click()}>
+            <span aria-hidden="true">＋</span> Open export
+          </button>
+        </div>
+      </header>
+
+      <section className="workspace">
+        <aside className="sidebar">
+          <div className="archive-heading">
+            <div className="avatar large">{initials(otherName)}</div>
+            <div>
+              <span className="eyebrow">Conversation with</span>
+              <h1>{otherName}</h1>
+              <p>{chat.messages.length.toLocaleString()} messages</p>
+            </div>
+          </div>
+
+          <div className="archive-source">
+            <span className="source-icon">⌁</span>
+            <div>
+              <strong>{sourceLabel}</strong>
+              <small>{isDemo ? "Explore the sample, then open yours" : "Loaded locally in this tab"}</small>
+            </div>
+          </div>
+
+          <nav className="filter-section" aria-label="Message filters">
+            <span className="section-label">Show messages</span>
+            <button className={senderFilter === "all" ? "active" : ""} onClick={() => setSenderFilter("all")} type="button"><span>▦</span> Everything <b>{chat.messages.length.toLocaleString()}</b></button>
+            <button className={senderFilter === "me" ? "active" : ""} onClick={() => setSenderFilter("me")} type="button"><span>↗</span> From you</button>
+            <button className={senderFilter === "them" ? "active" : ""} onClick={() => setSenderFilter("them")} type="button"><span>↙</span> From {otherName.split(" ")[0]}</button>
+          </nav>
+
+          <div className="filter-section media-filters">
+            <span className="section-label">Media & links</span>
+            {([
+              ["photos", "▧", "Photos", stats.photos],
+              ["videos", "▷", "Videos", stats.videos],
+              ["voice", "≋", "Audio", stats.voice],
+              ["files", "□", "Files", stats.files],
+              ["links", "↗", "Links", stats.links],
+            ] as const).map(([value, icon, label, count]) => (
+              <button key={value} className={mediaFilter === value ? "active" : ""} onClick={() => setMediaFilter(mediaFilter === value ? "all" : value)} type="button">
+                <span>{icon}</span> {label} <b>{count}</b>
+              </button>
+            ))}
+          </div>
+
+          <div className="sidebar-foot">
+            <span className="section-label">Archive span</span>
+            <strong>{stats.first ? shortDateFormatter.format(stats.first) : "—"} <span>→</span> {stats.last ? shortDateFormatter.format(stats.last) : "—"}</strong>
+            <p>Your files stay in this browser tab. Closing it clears the loaded archive.</p>
+          </div>
+        </aside>
+
+        <section className="conversation-panel">
+          <div className="conversation-toolbar">
+            <div className="mobile-title">
+              <div className="avatar">{initials(otherName)}</div>
+              <span><strong>{otherName}</strong><small>{chat.messages.length.toLocaleString()} messages</small></span>
+            </div>
+            <label className="search-box">
+              <span aria-hidden="true">⌕</span>
+              <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={searchKeyboard} placeholder="Search this conversation" aria-label="Search this conversation" />
+              {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search">×</button>}
+            </label>
+            <select value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)} aria-label="Filter by month">
+              <option value="all">Any date</option>
+              {months.map(([key, date]) => <option key={key} value={key}>{monthFormatter.format(date)}</option>)}
+            </select>
+          </div>
+
+          {isDemo && (
+            <div className="welcome-strip">
+              <span className="welcome-lock">◇</span>
+              <div>
+                <strong>This is a sample conversation</strong>
+                <p>Open your Telegram export folder to replace it. Nothing is uploaded.</p>
+              </div>
+              <button type="button" onClick={() => folderInputRef.current?.click()}>Choose folder</button>
+              <button className="text-button" type="button" onClick={() => jsonInputRef.current?.click()}>or result.json</button>
+            </div>
+          )}
+
+          {error && <div className="error-banner" role="alert"><strong>Couldn’t open that export.</strong><span>{error}</span><button type="button" onClick={() => setError("")}>×</button></div>}
+
+          <div className="message-list" ref={messageListRef}>
+            {hiddenCount > 0 && (
+              <button className="load-older" type="button" onClick={() => setVisibleLimit((limit) => limit + 300)}>
+                Show {Math.min(300, hiddenCount).toLocaleString()} earlier messages
+              </button>
+            )}
+
+            {visibleMessages.length === 0 ? (
+              <div className="empty-state">
+                <span>⌕</span>
+                <h2>No messages found</h2>
+                <p>Try a different word, date, or media filter.</p>
+                <button type="button" onClick={clearFilters}>Clear filters</button>
+              </div>
+            ) : (
+              visibleMessages.map((message, index) => {
+                const previous = visibleMessages[index - 1];
+                const showDate = !previous || dayKey(previous) !== dayKey(message);
+                const mine = isMine(message);
+                const reply = message.reply_to_message_id ? messagesById.get(String(message.reply_to_message_id)) : undefined;
+                const service = message.type === "service";
+                return (
+                  <Fragment key={`${message.id}-${index}`}>
+                    {showDate && <div className="date-divider"><span>{dayFormatter.format(safeDate(message))}</span></div>}
+                    {service ? (
+                      <div className="service-message">{messageText(message) || `${message.actor ?? "Someone"} ${message.action?.replaceAll("_", " ") ?? "updated the chat"}`}</div>
+                    ) : (
+                      <article id={`message-${message.id}`} className={`message-row ${mine ? "mine" : "theirs"}`}>
+                        {!mine && <div className="avatar tiny">{initials(message.from ?? otherName)}</div>}
+                        <div className="bubble-wrap">
+                          {message.forwarded_from && <div className="forwarded">Forwarded from {message.forwarded_from}</div>}
+                          <div className="message-bubble">
+                            {reply && (
+                              <button className="reply-preview" type="button" onClick={() => scrollToMessage(reply.id)}>
+                                <strong>{reply.from ?? "Message"}</strong>
+                                <span>{messageText(reply) || "Attachment"}</span>
+                              </button>
+                            )}
+                            {renderMedia(message)}
+                            {message.poll && (
+                              <div className="poll-card">
+                                <strong>{message.poll.question ?? "Poll"}</strong>
+                                {message.poll.answers?.map((answer, answerIndex) => (
+                                  <div className={answer.chosen ? "chosen" : ""} key={answerIndex}><span>{answer.text}</span><b>{answer.voters ?? 0}</b></div>
+                                ))}
+                              </div>
+                            )}
+                            {message.contact_information && (
+                              <div className="contact-card"><span className="avatar tiny">{initials(`${message.contact_information.first_name ?? ""} ${message.contact_information.last_name ?? ""}`)}</span><span><strong>{message.contact_information.first_name} {message.contact_information.last_name}</strong><small>{message.contact_information.phone_number}</small></span></div>
+                            )}
+                            {message.location_information && (
+                              <a className="location-card" href={`https://www.openstreetmap.org/?mlat=${message.location_information.latitude}&mlon=${message.location_information.longitude}`} target="_blank" rel="noreferrer">⌖ <span><strong>Shared location</strong><small>Open in map</small></span></a>
+                            )}
+                            {messageText(message) && <p className="message-copy">{renderRichText(message, deferredQuery)}</p>}
+                            <span className="message-meta">{message.edited && <span>edited</span>}{timeFormatter.format(safeDate(message))}</span>
+                          </div>
+                        </div>
+                      </article>
+                    )}
+                  </Fragment>
+                );
+              })
+            )}
+            {visibleMessages.length > 0 && <div className="end-marker"><span>End of selected messages</span></div>}
+          </div>
+        </section>
+      </section>
+
+      {dragging && <div className="drop-overlay"><div><span>⇩</span><strong>Drop your Telegram export</strong><p>Use result.json, or choose the folder to include media.</p></div></div>}
+    </main>
+  );
+}
