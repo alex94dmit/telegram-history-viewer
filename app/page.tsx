@@ -296,6 +296,35 @@ function TelegramAudio({ src, duration }: { src: string; duration?: number }) {
   );
 }
 
+function TelegramGif({ src, poster, label, mimeType }: { src: string; poster?: string; label: string; mimeType: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const ensurePlayback = () => {
+      if (!document.hidden && video.paused) void video.play().catch(() => undefined);
+    };
+    ensurePlayback();
+    video.addEventListener("canplay", ensurePlayback);
+    video.addEventListener("pause", ensurePlayback);
+    document.addEventListener("visibilitychange", ensurePlayback);
+    return () => {
+      video.removeEventListener("canplay", ensurePlayback);
+      video.removeEventListener("pause", ensurePlayback);
+      document.removeEventListener("visibilitychange", ensurePlayback);
+    };
+  }, [src]);
+
+  return (
+    <div className="telegram-gif-frame" role="img" aria-label={label}>
+      <video ref={videoRef} className="telegram-gif-media" autoPlay loop muted playsInline preload="auto" poster={poster} aria-hidden="true">
+        <source src={src} type={mimeType} />
+      </video>
+    </div>
+  );
+}
+
 function TelegramTgsSticker({ src, emoji }: { src: string; emoji?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -660,21 +689,22 @@ export default function Home() {
       );
     }
     if (kind === "videos" && url) {
-      const animation = message.media_type === "animation";
-      const round = message.media_type === "video_message";
       const poster = resolveMedia(message.thumbnail);
+      if (message.media_type === "animation") {
+        return wrapSpoiler(
+          <TelegramGif src={url} poster={poster} label={messageText(message) || `Animated image ${label}`} mimeType={message.mime_type || "video/mp4"} />,
+        );
+      }
+      const round = message.media_type === "video_message";
       return wrapSpoiler(
         <div className={`telegram-video-frame${round ? " round-video-frame" : ""}`}>
           <video
-            className={`media-video${round ? " round-video" : ""}${animation ? " telegram-gif" : ""}`}
-            controls={!animation}
+            className={`media-video${round ? " round-video" : ""}`}
+            controls
             controlsList="nofullscreen noremoteplayback"
             disablePictureInPicture
-            autoPlay={animation}
-            loop={animation}
-            muted={animation}
             playsInline
-            preload={animation ? "auto" : "metadata"}
+            preload="metadata"
             poster={poster}
             width={message.width}
             height={message.height}

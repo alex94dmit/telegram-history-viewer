@@ -907,7 +907,8 @@ select:focus-visible {
 
 .media-spoiler .media-photo,
 .media-spoiler .media-video,
-.media-spoiler .telegram-video-frame {
+.media-spoiler .telegram-video-frame,
+.media-spoiler .telegram-gif-frame {
   margin: 0;
   border-radius: 0;
 }
@@ -1923,8 +1924,22 @@ body {
   font-size: 64px;
 }
 
-.telegram-gif {
-  cursor: pointer;
+.telegram-gif-frame {
+  width: min(420px, 65vw);
+  max-height: 430px;
+  margin: -5px -7px 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--sidebar);
+}
+
+.telegram-gif-media {
+  width: 100%;
+  height: auto;
+  max-height: 430px;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 .file-card:is(button) {

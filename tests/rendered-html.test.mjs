@@ -46,7 +46,10 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /lottie-web\/build\/player\/lottie_light/);
   assert.match(page, /poster=\{poster\}/);
   assert.match(page, /<source src=\{url\} type=/);
-  assert.match(page, /preload=\{animation \? "auto" : "metadata"\}/);
+  assert.match(page, /function TelegramGif/);
+  assert.match(page, /className="telegram-gif-frame" role="img"/);
+  assert.match(page, /className="telegram-gif-media" autoPlay loop muted playsInline preload="auto"/);
+  assert.match(page, /addEventListener\("pause", ensurePlayback\)/);
   assert.match(page, /viewerUrlRef/);
   assert.match(page, /openMediaViewer\(path, label, alt, "photo"\)/);
   assert.match(page, /Open \$\{label\} in media viewer/);
