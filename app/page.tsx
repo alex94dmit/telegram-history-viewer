@@ -427,12 +427,6 @@ export default function Home() {
   }, [theme]);
 
   useEffect(() => {
-    return () => {
-      mediaUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, []);
-
-  useEffect(() => {
     if (!viewerMedia) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
@@ -636,7 +630,7 @@ export default function Home() {
           loop={animation}
           muted={animation}
           playsInline
-          preload="auto"
+          preload={animation ? "auto" : "metadata"}
           poster={poster}
           width={message.width}
           height={message.height}

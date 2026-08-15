@@ -46,6 +46,8 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /lottie-web\/build\/player\/lottie_light/);
   assert.match(page, /poster=\{poster\}/);
   assert.match(page, /<source src=\{url\} type=/);
+  assert.match(page, /preload=\{animation \? "auto" : "metadata"\}/);
+  assert.equal((page.match(/URL\.revokeObjectURL/g) ?? []).length, 1);
   assert.match(page, /role="dialog"/);
   assert.match(page, /Close photo viewer/);
   assert.match(layout, /Stillgram/);

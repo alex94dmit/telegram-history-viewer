@@ -814,8 +814,6 @@ select:focus-visible {
 
 .media-video {
   background-color: #101010;
-  backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
 }
 
 .media-video.round-video {
