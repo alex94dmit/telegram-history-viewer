@@ -1551,6 +1551,60 @@ body {
   color: var(--tg-secondary);
 }
 
+.archive-switcher {
+  min-height: 44px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  z-index: 3;
+}
+
+.archive-switcher > span {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.archive-switcher small {
+  color: var(--tg-secondary);
+  font-size: 8px;
+}
+
+.archive-switcher strong {
+  overflow: hidden;
+  margin-top: 1px;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-switcher > div {
+  display: flex;
+  gap: 6px;
+}
+
+.archive-switcher button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 15px;
+  background: var(--tg-hover);
+  color: var(--tg-blue);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.archive-switcher button.primary {
+  background: var(--tg-blue);
+  color: white;
+}
+
 .filter-section {
   margin: 0 8px 14px;
 }
@@ -2268,6 +2322,22 @@ body {
 
   .media-connect-banner p {
     display: none;
+  }
+
+  .archive-switcher {
+    padding: 6px 8px;
+  }
+
+  .archive-switcher > span {
+    display: none;
+  }
+
+  .archive-switcher > div {
+    width: 100%;
+  }
+
+  .archive-switcher button {
+    flex: 1;
   }
 
   .sticker-media,

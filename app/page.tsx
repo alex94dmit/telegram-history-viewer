@@ -838,6 +838,14 @@ export default function Home() {
             </select>
           </div>
 
+          <div className="archive-switcher" aria-label="Archive source controls">
+            <span><small>Archive source</small><strong>{sourceLabel}</strong></span>
+            <div>
+              <button className="primary" type="button" onClick={() => folderInputRef.current?.click()}>▧ Choose folder</button>
+              <button type="button" onClick={() => jsonInputRef.current?.click()}>☷ Messages only</button>
+            </div>
+          </div>
+
           {isDemo && (
             <div className="welcome-strip">
               <span className="welcome-lock">◇</span>
@@ -845,8 +853,6 @@ export default function Home() {
                 <strong>This is a sample conversation</strong>
                 <p>Open your Telegram export folder to replace it. Nothing is uploaded.</p>
               </div>
-              <button type="button" onClick={() => folderInputRef.current?.click()}>Choose folder</button>
-              <button className="text-button" type="button" onClick={() => jsonInputRef.current?.click()}>Messages only (.json)</button>
             </div>
           )}
 

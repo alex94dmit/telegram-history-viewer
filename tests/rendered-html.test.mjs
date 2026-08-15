@@ -39,6 +39,9 @@ test("keeps local import behavior explicit in the source", async () => {
 
   assert.match(page, /webkitdirectory/);
   assert.match(page, /result\.json/);
+  assert.match(page, /Archive source controls/);
+  assert.match(page, /▧ Choose folder/);
+  assert.match(page, /☷ Messages only/);
   assert.match(page, /URL\.createObjectURL/);
   assert.match(page, /fetch\(src\)/);
   assert.doesNotMatch(page, /fetch\(\s*["'`]https?:/);
