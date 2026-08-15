@@ -43,6 +43,9 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /▧ Choose folder/);
   assert.match(page, /☷ Messages only/);
   assert.match(page, /URL\.createObjectURL/);
+  assert.match(page, /IntersectionObserver/);
+  assert.match(page, /rootMargin: "700px 0px"/);
+  assert.match(page, /\/api\/link-preview/);
   assert.match(page, /fetch\(src\)/);
   assert.doesNotMatch(page, /fetch\(\s*["'`]https?:/);
   assert.match(page, /Media folder isn’t connected/);

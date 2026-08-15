@@ -87,6 +87,14 @@ type MediaViewerItem = {
   posterUrl?: string;
 };
 
+type LinkPreviewData = {
+  url: string;
+  siteName?: string;
+  title?: string;
+  description?: string;
+  image?: string;
+};
+
 const demoChat: TelegramChat = {
   name: "Alex Chen",
   type: "personal_chat",
@@ -371,6 +379,114 @@ function TelegramTgsSticker({ src, emoji }: { src: string; emoji?: string }) {
 function safeHref(href: string) {
   if (/^(https?:|mailto:|tel:)/i.test(href)) return href;
   return undefined;
+}
+
+function normalizedHttpUrl(value?: string) {
+  if (!value) return undefined;
+  const trimmed = value.trim().replace(/[.,!?;:]+$/, "");
+  const candidate = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : /^(?:www\.|t\.me\/)/i.test(trimmed)
+      ? `https://${trimmed}`
+      : undefined;
+  if (!candidate) return undefined;
+  try {
+    const url = new URL(candidate);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function messagePreviewUrl(message: TelegramMessage) {
+  const source = message.text_entities ?? message.text ?? "";
+  const parts: RichTextPart[] = typeof source === "string" ? [source] : Array.isArray(source) ? source : [];
+
+  for (const part of parts) {
+    if (typeof part === "string") {
+      const match = part.match(/(?:https?:\/\/|www\.)[^\s<>"']+/i);
+      const url = normalizedHttpUrl(match?.[0]);
+      if (url) return url;
+      continue;
+    }
+    if (!["link", "text_link"].includes(part.type ?? "")) continue;
+    const url = normalizedHttpUrl(part.href ?? part.text);
+    if (url) return url;
+  }
+  return undefined;
+}
+
+const linkPreviewCache = new Map<string, Promise<LinkPreviewData | null>>();
+
+function fetchLinkPreview(url: string) {
+  const cached = linkPreviewCache.get(url);
+  if (cached) return cached;
+  const request = fetch(`/api/link-preview?url=${encodeURIComponent(url)}`)
+    .then(async (response) => response.ok ? await response.json() as LinkPreviewData : null)
+    .catch(() => null);
+  linkPreviewCache.set(url, request);
+  return request;
+}
+
+function TelegramLinkPreview({ url }: { url: string }) {
+  const cardRef = useRef<HTMLAnchorElement>(null);
+  const [preview, setPreview] = useState<LinkPreviewData | null>();
+  const [nearViewport, setNearViewport] = useState(false);
+  const fallback = useMemo(() => {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "");
+    let path = parsed.pathname;
+    try { path = decodeURIComponent(path); } catch { /* Keep the encoded path. */ }
+    path = path.replace(/\/$/, "");
+    return { host, label: path && path !== "/" ? `${host}${path}` : host };
+  }, [url]);
+
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setNearViewport(true);
+        observer.disconnect();
+      },
+      { root: card.closest(".message-list"), rootMargin: "700px 0px" },
+    );
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [url]);
+
+  useEffect(() => {
+    if (!nearViewport) return;
+    let active = true;
+    void fetchLinkPreview(url).then((nextPreview) => {
+      if (active) setPreview(nextPreview);
+    });
+    return () => { active = false; };
+  }, [nearViewport, url]);
+
+  const title = preview?.title || fallback.label;
+  const description = preview?.description;
+  return (
+    <a
+      ref={cardRef}
+      className={`link-preview-card${nearViewport && preview === undefined ? " is-loading" : ""}`}
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open link preview: ${title}`}
+    >
+      <span className="link-preview-accent" aria-hidden="true" />
+      <span className="link-preview-copy">
+        <small>{preview?.siteName || fallback.host}</small>
+        <strong>{title}</strong>
+        {description && <span>{description}</span>}
+      </span>
+      {preview?.image && (
+        <img src={preview.image} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+      )}
+    </a>
+  );
 }
 
 function serviceMessageText(message: TelegramMessage) {
@@ -904,6 +1020,7 @@ export default function Home() {
                 const joinsNext = sameMessageGroup(message, next);
                 const reply = message.reply_to_message_id ? messagesById.get(String(message.reply_to_message_id)) : undefined;
                 const service = message.type === "service";
+                const previewUrl = !message.photo && !message.file ? messagePreviewUrl(message) : undefined;
                 return (
                   <Fragment key={`${message.id}-${index}`}>
                     {showDate && <div className="date-divider"><span>{dayFormatter.format(safeDate(message))}</span></div>}
@@ -936,6 +1053,7 @@ export default function Home() {
                               <a className="location-card" href={`https://www.openstreetmap.org/?mlat=${message.location_information.latitude}&mlon=${message.location_information.longitude}`} target="_blank" rel="noreferrer">⌖ <span><strong>Shared location</strong><small>Open in map</small></span></a>
                             )}
                             {messageText(message) && <p className="message-copy">{renderRichText(message, deferredQuery)}</p>}
+                            {previewUrl && <TelegramLinkPreview url={previewUrl} />}
                             {message.inline_bot_buttons?.length ? (
                               <div className="bot-buttons">
                                 {message.inline_bot_buttons.flat().map((button, buttonIndex) => <span key={buttonIndex}>{button.text || "Telegram button"}</span>)}
