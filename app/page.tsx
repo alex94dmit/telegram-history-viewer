@@ -287,6 +287,49 @@ function TelegramAudio({ src, duration }: { src: string; duration?: number }) {
   );
 }
 
+function TelegramTgsSticker({ src, emoji }: { src: string; emoji?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let disposed = false;
+    let animation: { destroy: () => void } | undefined;
+
+    void (async () => {
+      try {
+        const response = await fetch(src);
+        if (!response.body) throw new Error("Sticker file is empty");
+        const stream = response.body.pipeThrough(new DecompressionStream("gzip"));
+        const animationData = JSON.parse(await new Response(stream).text());
+        const lottie = (await import("lottie-web/build/player/lottie_light")).default;
+        if (disposed || !containerRef.current) return;
+        animation = lottie.loadAnimation({
+          container: containerRef.current,
+          renderer: "svg",
+          loop: true,
+          autoplay: true,
+          animationData,
+          rendererSettings: { progressiveLoad: true },
+        });
+      } catch {
+        if (!disposed) setFailed(true);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      animation?.destroy();
+    };
+  }, [src]);
+
+  return (
+    <div className={`tgs-sticker${failed ? " failed" : ""}`} aria-label="Animated Telegram sticker">
+      <div ref={containerRef} />
+      {failed && <span>{emoji || "✦"}</span>}
+    </div>
+  );
+}
+
 function safeHref(href: string) {
   if (/^(https?:|mailto:|tel:)/i.test(href)) return href;
   return undefined;
@@ -366,6 +409,7 @@ export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
   const [sourceLabel, setSourceLabel] = useState("Sample archive");
+  const [mediaFileCount, setMediaFileCount] = useState(0);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const mediaFilesRef = useRef(new Map<string, File>());
@@ -440,6 +484,7 @@ export default function Home() {
     const last = chat.messages.at(-1) ? safeDate(chat.messages.at(-1)!) : undefined;
     return { ...media, first, last };
   }, [chat.messages]);
+  const needsMediaFolder = !isDemo && mediaFileCount === 0 && stats.photos + stats.videos + stats.voice + stats.files > 0;
 
   function resetObjectUrls() {
     mediaUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -479,6 +524,7 @@ export default function Home() {
         if (!media.has(file.name)) media.set(file.name, file);
       });
       mediaFilesRef.current = media;
+      setMediaFileCount(Math.max(0, files.length - 1));
       setChat({ ...nextChat, messages: nextChat.messages.slice().sort((a, b) => safeDate(a).getTime() - safeDate(b).getTime()) });
       setIsDemo(false);
       setSourceLabel(jsonFile.webkitRelativePath?.split("/")[0] || jsonFile.name);
@@ -538,13 +584,15 @@ export default function Home() {
       </details>
     ) : content;
 
-    if (message.media_type === "sticker" && message.mime_type === "application/x-tgsticker") {
-      return (
-        <div className="sticker-fallback" title="Animated Telegram sticker">
-          <span>{message.sticker_emoji || "✦"}</span>
-          <small>Animated sticker</small>
-        </div>
-      );
+    if (message.media_type === "sticker") {
+      if (message.mime_type === "application/x-tgsticker" && url) return <TelegramTgsSticker src={url} emoji={message.sticker_emoji} />;
+      if (url) {
+        return (
+          <a className="sticker-media" href={url} target="_blank" rel="noreferrer" aria-label="Open sticker">
+            <img src={url} alt={message.sticker_emoji ? `Sticker ${message.sticker_emoji}` : "Telegram sticker"} />
+          </a>
+        );
+      }
     }
 
     if (kind === "photos" && url) {
@@ -555,18 +603,37 @@ export default function Home() {
         </a>,
       );
     }
-    if (kind === "videos" && url) return wrapSpoiler(<video className={`media-video${message.media_type === "video_message" ? " round-video" : ""}`} src={url} controls preload="metadata" />);
+    if (kind === "videos" && url) {
+      const animation = message.media_type === "animation";
+      return wrapSpoiler(
+        <video
+          className={`media-video${message.media_type === "video_message" ? " round-video" : ""}${animation ? " telegram-gif" : ""}`}
+          src={url}
+          controls={!animation}
+          autoPlay={animation}
+          loop={animation}
+          muted={animation}
+          playsInline
+          preload="metadata"
+        />,
+      );
+    }
     if (kind === "voice" && url) {
       return <TelegramAudio src={url} duration={message.duration_seconds} />;
     }
-    return (
-      <a className={`file-card${url ? "" : " is-missing"}`} href={url} download={url ? label : undefined} onClick={(event) => !url && event.preventDefault()}>
+    const cardContent = (
+      <>
         <span className="file-icon">{kind === "photos" ? "IMG" : kind === "videos" ? "VID" : kind === "voice" ? "AUD" : "FILE"}</span>
         <span>
           <strong>{label}</strong>
           <small>{url ? [formatFileSize(message.file_size), "Open attachment"].filter(Boolean).join(" · ") : "Select the full export folder to open media"}</small>
         </span>
-      </a>
+      </>
+    );
+    return url ? (
+      <a className="file-card" href={url} download={label}>{cardContent}</a>
+    ) : (
+      <button className="file-card is-missing" type="button" onClick={() => folderInputRef.current?.click()}>{cardContent}</button>
     );
   }
 
@@ -672,7 +739,15 @@ export default function Home() {
                 <p>Open your Telegram export folder to replace it. Nothing is uploaded.</p>
               </div>
               <button type="button" onClick={() => folderInputRef.current?.click()}>Choose folder</button>
-              <button className="text-button" type="button" onClick={() => jsonInputRef.current?.click()}>or result.json</button>
+              <button className="text-button" type="button" onClick={() => jsonInputRef.current?.click()}>Messages only (.json)</button>
+            </div>
+          )}
+
+          {needsMediaFolder && (
+            <div className="media-connect-banner" role="status">
+              <span>▧</span>
+              <div><strong>Media folder isn’t connected</strong><p>Choose the complete ChatExport folder to display photos, GIFs, stickers, voice notes, and videos.</p></div>
+              <button type="button" onClick={() => folderInputRef.current?.click()}>Connect media</button>
             </div>
           )}
 
@@ -724,7 +799,7 @@ export default function Home() {
                     ) : (
                       <article id={`message-${message.id}`} className={`message-row ${mine ? "mine" : "theirs"}${joinsPrevious ? " joins-previous" : ""}${joinsNext ? " joins-next" : ""}`}>
                         <div className="bubble-wrap">
-                          <div className="message-bubble">
+                          <div className={`message-bubble${message.media_type === "sticker" ? " sticker-bubble" : ""}`}>
                             {message.forwarded_from && <div className="forwarded">Forwarded from {message.forwarded_from}</div>}
                             {reply && (
                               <button className="reply-preview" type="button" onClick={() => scrollToMessage(reply.id)}>

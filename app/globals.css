@@ -1643,6 +1643,66 @@ body {
   color: var(--tg-blue);
 }
 
+.media-connect-banner {
+  min-height: 54px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 10px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #f29b38;
+  border-radius: 7px;
+  background: var(--paper);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
+  z-index: 3;
+}
+
+.media-connect-banner > span {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, #f29b38 15%, var(--paper));
+  color: #d77b16;
+}
+
+.media-connect-banner > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.media-connect-banner strong,
+.media-connect-banner p {
+  display: block;
+  margin: 0;
+}
+
+.media-connect-banner strong {
+  font-size: 11px;
+}
+
+.media-connect-banner p {
+  margin-top: 2px;
+  color: var(--tg-secondary);
+  font-size: 9px;
+}
+
+.media-connect-banner button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--tg-blue);
+  color: white;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 650;
+}
+
 .mobile-filter-bar {
   display: none;
 }
@@ -1765,6 +1825,53 @@ body {
 .message-meta {
   color: color-mix(in srgb, var(--tg-secondary) 82%, transparent);
   font-size: 8px;
+}
+
+.message-bubble.sticker-bubble {
+  padding: 0 0 4px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message-bubble.sticker-bubble::before,
+.message-bubble.sticker-bubble::after {
+  display: none;
+}
+
+.sticker-media,
+.tgs-sticker {
+  width: 176px;
+  height: 176px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.sticker-media img,
+.tgs-sticker > div {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tgs-sticker.failed span {
+  font-size: 64px;
+}
+
+.telegram-gif {
+  cursor: pointer;
+}
+
+.file-card:is(button) {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.file-card.is-missing:hover {
+  opacity: 1;
 }
 
 .mine .message-meta::after {
@@ -1988,5 +2095,15 @@ body {
 
   .telegram-audio {
     min-width: min(270px, 72vw);
+  }
+
+  .media-connect-banner p {
+    display: none;
+  }
+
+  .sticker-media,
+  .tgs-sticker {
+    width: 150px;
+    height: 150px;
   }
 }
