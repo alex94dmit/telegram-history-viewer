@@ -823,6 +823,60 @@ select:focus-visible {
   border-radius: 50%;
 }
 
+.telegram-video-frame {
+  position: relative;
+  width: min(420px, 65vw);
+  max-height: 430px;
+  margin: -5px -7px 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #101010;
+}
+
+.telegram-video-frame .media-video {
+  width: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+
+.telegram-video-frame.round-video-frame {
+  width: min(290px, 58vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.round-video-frame .media-video {
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+}
+
+.video-open-viewer {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.56);
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.86;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.video-open-viewer:hover,
+.video-open-viewer:focus-visible {
+  background: rgba(0, 0, 0, 0.78);
+  opacity: 1;
+}
+
 .media-spoiler {
   width: min(420px, 65vw);
   margin: -5px -7px 8px;
@@ -852,7 +906,8 @@ select:focus-visible {
 }
 
 .media-spoiler .media-photo,
-.media-spoiler .media-video {
+.media-spoiler .media-video,
+.media-spoiler .telegram-video-frame {
   margin: 0;
   border-radius: 0;
 }
@@ -1953,12 +2008,19 @@ body {
   padding: 20px;
 }
 
-.media-viewer-stage img {
+.media-viewer-stage img,
+.media-viewer-video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: 3px;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.34);
+}
+
+.media-viewer-video {
+  width: auto;
+  height: auto;
+  background: #000;
 }
 
 @keyframes media-viewer-in {

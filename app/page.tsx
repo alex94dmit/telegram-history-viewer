@@ -79,9 +79,12 @@ type RawExport = TelegramChat & {
 type SenderFilter = "all" | "me" | "them";
 type MediaFilter = "all" | "photos" | "videos" | "voice" | "files" | "links";
 type MediaViewerItem = {
+  kind: "photo" | "video";
   url: string;
   label: string;
   alt: string;
+  mimeType?: string;
+  posterUrl?: string;
 };
 
 const demoChat: TelegramChat = {
@@ -422,11 +425,14 @@ export default function Home() {
   const mediaFilesRef = useRef(new Map<string, File>());
   const mediaUrlsRef = useRef(new Map<string, string>());
   const viewerUrlRef = useRef<string | null>(null);
+  const viewerPosterUrlRef = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
 
   const closeMediaViewer = useCallback(() => {
     if (viewerUrlRef.current) URL.revokeObjectURL(viewerUrlRef.current);
+    if (viewerPosterUrlRef.current) URL.revokeObjectURL(viewerPosterUrlRef.current);
     viewerUrlRef.current = null;
+    viewerPosterUrlRef.current = null;
     setViewerMedia(null);
   }, []);
 
@@ -530,13 +536,24 @@ export default function Home() {
     return url;
   }
 
-  function openMediaViewer(path: string, label: string, alt: string) {
+  function openMediaViewer(
+    path: string,
+    label: string,
+    alt: string,
+    kind: "photo" | "video",
+    mimeType?: string,
+    posterPath?: string,
+  ) {
     const file = mediaFile(path);
     if (!file) return;
     if (viewerUrlRef.current) URL.revokeObjectURL(viewerUrlRef.current);
+    if (viewerPosterUrlRef.current) URL.revokeObjectURL(viewerPosterUrlRef.current);
     const url = URL.createObjectURL(file);
+    const posterFile = mediaFile(posterPath);
+    const posterUrl = posterFile ? URL.createObjectURL(posterFile) : undefined;
     viewerUrlRef.current = url;
-    setViewerMedia({ url, label, alt });
+    viewerPosterUrlRef.current = posterUrl ?? null;
+    setViewerMedia({ kind, url, label, alt, mimeType, posterUrl });
   }
 
   async function loadFiles(fileList: FileList | File[]) {
@@ -636,7 +653,7 @@ export default function Home() {
     if (kind === "photos" && url) {
       const alt = messageText(message) || label;
       return wrapSpoiler(
-        <button className="media-photo" type="button" onClick={() => openMediaViewer(path, label, alt)} aria-label={`View ${label}`}>
+        <button className="media-photo" type="button" onClick={() => openMediaViewer(path, label, alt, "photo")} aria-label={`View ${label}`}>
           {/* Browser-created object URLs never leave this device. */}
           <img src={url} alt={alt} />
         </button>,
@@ -644,22 +661,38 @@ export default function Home() {
     }
     if (kind === "videos" && url) {
       const animation = message.media_type === "animation";
+      const round = message.media_type === "video_message";
       const poster = resolveMedia(message.thumbnail);
       return wrapSpoiler(
-        <video
-          className={`media-video${message.media_type === "video_message" ? " round-video" : ""}${animation ? " telegram-gif" : ""}`}
-          controls={!animation}
-          autoPlay={animation}
-          loop={animation}
-          muted={animation}
-          playsInline
-          preload={animation ? "auto" : "metadata"}
-          poster={poster}
-          width={message.width}
-          height={message.height}
-        >
-          <source src={url} type={message.mime_type || "video/mp4"} />
-        </video>,
+        <div className={`telegram-video-frame${round ? " round-video-frame" : ""}`}>
+          <video
+            className={`media-video${round ? " round-video" : ""}${animation ? " telegram-gif" : ""}`}
+            controls={!animation}
+            controlsList="nofullscreen noremoteplayback"
+            disablePictureInPicture
+            autoPlay={animation}
+            loop={animation}
+            muted={animation}
+            playsInline
+            preload={animation ? "auto" : "metadata"}
+            poster={poster}
+            width={message.width}
+            height={message.height}
+          >
+            <source src={url} type={message.mime_type || "video/mp4"} />
+          </video>
+          <button
+            className="video-open-viewer"
+            type="button"
+            aria-label={`Open ${label} in media viewer`}
+            onClick={(event) => {
+              event.currentTarget.parentElement?.querySelector("video")?.pause();
+              openMediaViewer(path, label, messageText(message) || label, "video", message.mime_type || "video/mp4", message.thumbnail);
+            }}
+          >
+            ⛶
+          </button>
+        </div>,
       );
     }
     if (kind === "voice" && url) {
@@ -906,9 +939,9 @@ export default function Home() {
           }}
         >
           <div className="media-viewer-toolbar">
-            <div><strong>{viewerMedia.label}</strong><span>Photo from this archive</span></div>
-            <a href={viewerMedia.url} download={viewerMedia.label} aria-label="Download photo">↓</a>
-            <button type="button" onClick={closeMediaViewer} aria-label="Close photo viewer" autoFocus>×</button>
+            <div><strong>{viewerMedia.label}</strong><span>{viewerMedia.kind === "photo" ? "Photo" : "Video"} from this archive</span></div>
+            <a href={viewerMedia.url} download={viewerMedia.label} aria-label={`Download ${viewerMedia.kind}`}>↓</a>
+            <button type="button" onClick={closeMediaViewer} aria-label="Close media viewer" autoFocus>×</button>
           </div>
           <div
             className="media-viewer-stage"
@@ -916,7 +949,23 @@ export default function Home() {
               if (event.currentTarget === event.target) closeMediaViewer();
             }}
           >
-            <img src={viewerMedia.url} alt={viewerMedia.alt} />
+            {viewerMedia.kind === "photo" ? (
+              <img src={viewerMedia.url} alt={viewerMedia.alt} />
+            ) : (
+              <video
+                className="media-viewer-video"
+                controls
+                controlsList="nofullscreen noremoteplayback"
+                disablePictureInPicture
+                autoPlay
+                playsInline
+                preload="metadata"
+                poster={viewerMedia.posterUrl}
+                aria-label={viewerMedia.alt}
+              >
+                <source src={viewerMedia.url} type={viewerMedia.mimeType || "video/mp4"} />
+              </video>
+            )}
           </div>
         </div>
       )}

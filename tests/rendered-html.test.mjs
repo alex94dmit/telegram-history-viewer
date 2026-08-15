@@ -48,10 +48,13 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /<source src=\{url\} type=/);
   assert.match(page, /preload=\{animation \? "auto" : "metadata"\}/);
   assert.match(page, /viewerUrlRef/);
-  assert.match(page, /openMediaViewer\(path, label, alt\)/);
+  assert.match(page, /openMediaViewer\(path, label, alt, "photo"\)/);
+  assert.match(page, /Open \$\{label\} in media viewer/);
+  assert.match(page, /controlsList="nofullscreen noremoteplayback"/);
+  assert.match(page, /className="media-viewer-video"/);
   assert.match(page, /closeMediaViewer/);
   assert.match(page, /role="dialog"/);
-  assert.match(page, /Close photo viewer/);
+  assert.match(page, /Close media viewer/);
   assert.match(layout, /Stillgram/);
   assert.match(layout, /\/og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
