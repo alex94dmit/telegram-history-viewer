@@ -44,6 +44,10 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.doesNotMatch(page, /fetch\(\s*["'`]https?:/);
   assert.match(page, /Media folder isn’t connected/);
   assert.match(page, /lottie-web\/build\/player\/lottie_light/);
+  assert.match(page, /poster=\{poster\}/);
+  assert.match(page, /<source src=\{url\} type=/);
+  assert.match(page, /role="dialog"/);
+  assert.match(page, /Close photo viewer/);
   assert.match(layout, /Stillgram/);
   assert.match(layout, /\/og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

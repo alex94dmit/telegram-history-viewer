@@ -797,6 +797,12 @@ select:focus-visible {
   background: var(--sidebar);
 }
 
+.media-photo:is(button) {
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
+}
+
 .media-photo img,
 .media-video {
   width: 100%;
@@ -804,6 +810,12 @@ select:focus-visible {
   max-height: 430px;
   object-fit: contain;
   display: block;
+}
+
+.media-video {
+  background-color: #101010;
+  backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
 }
 
 .media-video.round-video {
@@ -1874,6 +1886,88 @@ body {
   opacity: 1;
 }
 
+.media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr);
+  background: rgba(13, 18, 23, 0.94);
+  backdrop-filter: blur(10px);
+  animation: media-viewer-in 150ms ease-out;
+}
+
+.media-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  color: white;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.media-viewer-toolbar > div {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.media-viewer-toolbar strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-viewer-toolbar span {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 9px;
+}
+
+.media-viewer-toolbar a,
+.media-viewer-toolbar button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-size: 19px;
+  text-decoration: none;
+}
+
+.media-viewer-toolbar a:hover,
+.media-viewer-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.media-viewer-stage {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.media-viewer-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.34);
+}
+
+@keyframes media-viewer-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .mine .message-meta::after {
   content: "✓✓";
   margin-left: 3px;
@@ -2105,5 +2199,17 @@ body {
   .tgs-sticker {
     width: 150px;
     height: 150px;
+  }
+
+  .media-viewer-toolbar {
+    padding: 0 8px 0 12px;
+  }
+
+  .media-viewer-toolbar span {
+    display: none;
+  }
+
+  .media-viewer-stage {
+    padding: 8px;
   }
 }

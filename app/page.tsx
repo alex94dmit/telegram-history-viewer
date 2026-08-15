@@ -77,6 +77,11 @@ type RawExport = TelegramChat & {
 
 type SenderFilter = "all" | "me" | "them";
 type MediaFilter = "all" | "photos" | "videos" | "voice" | "files" | "links";
+type MediaViewerItem = {
+  url: string;
+  label: string;
+  alt: string;
+};
 
 const demoChat: TelegramChat = {
   name: "Alex Chen",
@@ -410,6 +415,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [sourceLabel, setSourceLabel] = useState("Sample archive");
   const [mediaFileCount, setMediaFileCount] = useState(0);
+  const [viewerMedia, setViewerMedia] = useState<MediaViewerItem | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const mediaFilesRef = useRef(new Map<string, File>());
@@ -425,6 +431,20 @@ export default function Home() {
       mediaUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
+
+  useEffect(() => {
+    if (!viewerMedia) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setViewerMedia(null);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [viewerMedia]);
 
   const messagesById = useMemo(
     () => new Map(chat.messages.map((message) => [String(message.id), message])),
@@ -533,6 +553,7 @@ export default function Home() {
       setMediaFilter("all");
       setMonthFilter("all");
       setVisibleLimit(240);
+      setViewerMedia(null);
       requestAnimationFrame(() => messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "This file could not be read as a Telegram export.");
@@ -596,26 +617,32 @@ export default function Home() {
     }
 
     if (kind === "photos" && url) {
+      const alt = messageText(message) || label;
       return wrapSpoiler(
-        <a className="media-photo" href={url} target="_blank" rel="noreferrer" aria-label={`Open ${label}`}>
+        <button className="media-photo" type="button" onClick={() => setViewerMedia({ url, label, alt })} aria-label={`View ${label}`}>
           {/* Browser-created object URLs never leave this device. */}
-          <img src={url} alt={messageText(message) || label} />
-        </a>,
+          <img src={url} alt={alt} />
+        </button>,
       );
     }
     if (kind === "videos" && url) {
       const animation = message.media_type === "animation";
+      const poster = resolveMedia(message.thumbnail);
       return wrapSpoiler(
         <video
           className={`media-video${message.media_type === "video_message" ? " round-video" : ""}${animation ? " telegram-gif" : ""}`}
-          src={url}
           controls={!animation}
           autoPlay={animation}
           loop={animation}
           muted={animation}
           playsInline
-          preload="metadata"
-        />,
+          preload="auto"
+          poster={poster}
+          width={message.width}
+          height={message.height}
+        >
+          <source src={url} type={message.mime_type || "video/mp4"} />
+        </video>,
       );
     }
     if (kind === "voice" && url) {
@@ -850,6 +877,32 @@ export default function Home() {
           </div>
         </section>
       </section>
+
+      {viewerMedia && (
+        <div
+          className="media-viewer"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Viewing ${viewerMedia.label}`}
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setViewerMedia(null);
+          }}
+        >
+          <div className="media-viewer-toolbar">
+            <div><strong>{viewerMedia.label}</strong><span>Photo from this archive</span></div>
+            <a href={viewerMedia.url} download={viewerMedia.label} aria-label="Download photo">↓</a>
+            <button type="button" onClick={() => setViewerMedia(null)} aria-label="Close photo viewer" autoFocus>×</button>
+          </div>
+          <div
+            className="media-viewer-stage"
+            onMouseDown={(event) => {
+              if (event.currentTarget === event.target) setViewerMedia(null);
+            }}
+          >
+            <img src={viewerMedia.url} alt={viewerMedia.alt} />
+          </div>
+        </div>
+      )}
 
       {dragging && <div className="drop-overlay"><div><span>⇩</span><strong>Drop your Telegram export</strong><p>Use result.json, or choose the folder to include media.</p></div></div>}
     </main>
