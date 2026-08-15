@@ -742,8 +742,10 @@ select:focus-visible {
   align-items: center;
   gap: 5px;
   color: var(--faint);
-  font-size: 8px;
-  margin: 5px 0 0 13px;
+  margin: 8px 0 0 14px;
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .message-meta span {
@@ -1876,8 +1878,9 @@ body {
 }
 
 .message-bubble {
+  display: flow-root;
   min-height: 31px;
-  padding: 7px 9px 6px;
+  padding: 7px 9px 8px;
   border: 0;
   border-radius: 12px;
   background: var(--tg-incoming);
@@ -1943,8 +1946,7 @@ body {
 }
 
 .message-meta {
-  color: color-mix(in srgb, var(--tg-secondary) 82%, transparent);
-  font-size: 8px;
+  color: color-mix(in srgb, var(--tg-secondary) 90%, transparent);
 }
 
 .message-bubble.sticker-bubble {
