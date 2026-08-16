@@ -760,7 +760,11 @@ export default function Home() {
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   const [mediaLibraryFilter, setMediaLibraryFilter] = useState<LibraryMediaFilter>("all");
   const [mediaLibraryLimit, setMediaLibraryLimit] = useState(120);
+  const [conversationNameOverride, setConversationNameOverride] = useState<{ key: string; value: string } | null>(null);
+  const [renamingConversation, setRenamingConversation] = useState(false);
+  const [conversationNameDraft, setConversationNameDraft] = useState("");
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const conversationNameInputRef = useRef<HTMLInputElement>(null);
   const mediaFilesRef = useRef(new Map<string, File>());
   const mediaUrlsRef = useRef(new Map<string, string>());
   const viewerUrlRef = useRef<string | null>(null);
@@ -869,7 +873,10 @@ export default function Home() {
 
   const otherName = chat.name ?? participants[0] ?? "Contact";
   const meName = participants.find((name) => name !== otherName) ?? participants[1] ?? "You";
-  const conversationName = meName === otherName ? otherName : `${meName} & ${otherName}`;
+  const defaultConversationName = meName === otherName ? otherName : `${meName} & ${otherName}`;
+  const conversationNameStorageKey = `stillgram:chat-name:${String(chat.id ?? `${meName}|${otherName}`)}`;
+  const customConversationName = conversationNameOverride?.key === conversationNameStorageKey ? conversationNameOverride.value : "";
+  const conversationName = customConversationName || defaultConversationName;
   const conversationInitials = `${initials(meName).slice(0, 1)}${initials(otherName).slice(0, 1)}`;
   const peerIdDigits = String(chat.id ?? "").replace(/\D/g, "");
   const isMine = (message: TelegramMessage) => {
@@ -877,6 +884,26 @@ export default function Home() {
     if (peerIdDigits && senderIdDigits) return senderIdDigits !== peerIdDigits;
     return (message.from ?? message.actor) === meName;
   };
+
+  useEffect(() => {
+    let storedName = "";
+    try {
+      storedName = window.localStorage.getItem(conversationNameStorageKey)?.trim() ?? "";
+    } catch {
+      // Renaming still works for this session when browser storage is unavailable.
+    }
+    setConversationNameOverride(storedName ? { key: conversationNameStorageKey, value: storedName } : null);
+    setRenamingConversation(false);
+  }, [conversationNameStorageKey]);
+
+  useEffect(() => {
+    if (!renamingConversation) return;
+    const frame = window.requestAnimationFrame(() => {
+      conversationNameInputRef.current?.focus();
+      conversationNameInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [renamingConversation]);
 
   const months = useMemo(() => {
     const unique = new Map<string, Date>();
@@ -1066,6 +1093,28 @@ export default function Home() {
         setCacheStatus(await cacheArchive(entries, label) ? "saved" : "unavailable");
       })();
     }
+  }
+
+  function startConversationRename() {
+    setConversationNameDraft(conversationName);
+    setRenamingConversation(true);
+  }
+
+  function cancelConversationRename() {
+    setConversationNameDraft(conversationName);
+    setRenamingConversation(false);
+  }
+
+  function saveConversationName() {
+    const nextName = conversationNameDraft.trim().replace(/\s+/g, " ");
+    if (!nextName) return;
+    setConversationNameOverride({ key: conversationNameStorageKey, value: nextName });
+    try {
+      window.localStorage.setItem(conversationNameStorageKey, nextName);
+    } catch {
+      // Keep the session-only rename when browser storage is unavailable.
+    }
+    setRenamingConversation(false);
   }
 
   function clearFilters() {
@@ -1319,7 +1368,36 @@ export default function Home() {
                 ☰
               </button>
               <div className="avatar">{conversationInitials}</div>
-              <span><strong>{conversationName}</strong><small>{chat.messages.length.toLocaleString()} archived messages</small></span>
+              <span>
+                {renamingConversation ? (
+                  <form className="conversation-name-editor" onSubmit={(event) => {
+                    event.preventDefault();
+                    saveConversationName();
+                  }}>
+                    <input
+                      ref={conversationNameInputRef}
+                      value={conversationNameDraft}
+                      onChange={(event) => setConversationNameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelConversationRename();
+                        }
+                      }}
+                      maxLength={80}
+                      aria-label="Chat name"
+                    />
+                    <button type="submit" aria-label="Save chat name" title="Save" disabled={!conversationNameDraft.trim()}>✓</button>
+                    <button type="button" onClick={cancelConversationRename} aria-label="Cancel renaming chat" title="Cancel">×</button>
+                  </form>
+                ) : (
+                  <strong>{conversationName}</strong>
+                )}
+                <span className="chat-title-meta">
+                  <small>{chat.messages.length.toLocaleString()} archived messages</small>
+                  {!renamingConversation && <button className="rename-chat-button" type="button" onClick={startConversationRename} aria-label="Rename chat" title="Rename chat">✎</button>}
+                </span>
+              </span>
             </div>
             <button
               className="view-media-button"

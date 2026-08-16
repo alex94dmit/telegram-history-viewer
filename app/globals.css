@@ -1865,6 +1865,65 @@ body {
   font-size: 10px;
 }
 
+.chat-title-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat-title-meta small {
+  margin-top: 0;
+}
+
+.rename-chat-button,
+.conversation-name-editor button {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--tg-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rename-chat-button:hover,
+.rename-chat-button:focus-visible,
+.conversation-name-editor button:hover,
+.conversation-name-editor button:focus-visible {
+  background: var(--tg-hover);
+  color: var(--tg-blue);
+}
+
+.conversation-name-editor {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.conversation-name-editor input {
+  width: 150px;
+  min-width: 90px;
+  height: 28px;
+  border: 0;
+  border-bottom: 2px solid var(--tg-blue);
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.conversation-name-editor button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .search-box {
   width: min(310px, 40vw);
   height: 38px;

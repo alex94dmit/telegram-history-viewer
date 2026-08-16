@@ -28,6 +28,7 @@ test("server-renders the Stillgram archive viewer", async () => {
   assert.match(html, /Message filters/);
   assert.match(html, /Sample archive/);
   assert.match(html, /Jamie &amp; Alex Chen/);
+  assert.match(html, /Rename chat/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
@@ -54,6 +55,12 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /selectSenderFilter/);
   assert.match(page, /conversationName/);
   assert.match(page, /conversationInitials/);
+  assert.match(page, /conversationNameStorageKey/);
+  assert.match(page, /localStorage\.getItem\(conversationNameStorageKey\)/);
+  assert.match(page, /localStorage\.setItem\(conversationNameStorageKey, nextName\)/);
+  assert.match(page, /aria-label="Chat name"/);
+  assert.match(page, /aria-label="Save chat name"/);
+  assert.match(page, /aria-label="Cancel renaming chat"/);
   assert.match(page, /scrollMessagesToLatest/);
   assert.match(page, /View Media/);
   assert.match(page, /Shared media/);
