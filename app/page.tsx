@@ -76,6 +76,25 @@ type RawExport = TelegramChat & {
   chats?: { list?: TelegramChat[] };
 };
 
+type ArchiveFileEntry = {
+  file: File;
+  relativePath: string;
+};
+
+type PersistentFileHandle = {
+  kind: "file";
+  name: string;
+  getFile(): Promise<File>;
+};
+
+type PersistentDirectoryHandle = {
+  kind: "directory";
+  name: string;
+  entries(): AsyncIterableIterator<[string, PersistentFileHandle | PersistentDirectoryHandle]>;
+  queryPermission(options?: { mode?: "read" }): Promise<PermissionState>;
+  requestPermission(options?: { mode?: "read" }): Promise<PermissionState>;
+};
+
 type SenderFilter = "all" | "me" | "them";
 type MediaFilter = "all" | "photos" | "videos" | "voice" | "files" | "links";
 type LibraryMediaFilter = "all" | "photos" | "videos";
@@ -177,6 +196,9 @@ const dayFormatter = new Intl.DateTimeFormat(undefined, {
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 const shortDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
 const mediaDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const ARCHIVE_CACHE_DATABASE = "stillgram-local-archive";
+const ARCHIVE_CACHE_STORE = "handles";
+const ARCHIVE_CACHE_KEY = "telegram-export-folder";
 
 function messageText(message: TelegramMessage): string {
   const source = message.text_entities ?? message.text ?? "";
@@ -187,6 +209,76 @@ function messageText(message: TelegramMessage): string {
 
 function normalizePath(path: string) {
   return path.replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+function openArchiveCache() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(ARCHIVE_CACHE_DATABASE, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(ARCHIVE_CACHE_STORE)) {
+        request.result.createObjectStore(ARCHIVE_CACHE_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readCachedDirectory() {
+  if (typeof indexedDB === "undefined") return undefined;
+  try {
+    const database = await openArchiveCache();
+    const transaction = database.transaction(ARCHIVE_CACHE_STORE, "readonly");
+    const request = transaction.objectStore(ARCHIVE_CACHE_STORE).get(ARCHIVE_CACHE_KEY);
+    const handle = await new Promise<PersistentDirectoryHandle | undefined>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result as PersistentDirectoryHandle | undefined);
+      request.onerror = () => reject(request.error);
+    });
+    database.close();
+    return handle;
+  } catch {
+    return undefined;
+  }
+}
+
+async function cacheDirectory(handle: PersistentDirectoryHandle) {
+  if (typeof indexedDB === "undefined") return;
+  try {
+    const database = await openArchiveCache();
+    const transaction = database.transaction(ARCHIVE_CACHE_STORE, "readwrite");
+    transaction.objectStore(ARCHIVE_CACHE_STORE).put(handle, ARCHIVE_CACHE_KEY);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    database.close();
+  } catch {
+    // The archive still opens when a browser does not persist file-system handles.
+  }
+}
+
+async function clearCachedDirectory() {
+  if (typeof indexedDB === "undefined") return;
+  try {
+    const database = await openArchiveCache();
+    const transaction = database.transaction(ARCHIVE_CACHE_STORE, "readwrite");
+    transaction.objectStore(ARCHIVE_CACHE_STORE).delete(ARCHIVE_CACHE_KEY);
+    await new Promise<void>((resolve) => { transaction.oncomplete = () => resolve(); });
+    database.close();
+  } catch {
+    // Ignore unavailable browser storage.
+  }
+}
+
+async function filesFromDirectory(handle: PersistentDirectoryHandle, prefix = handle.name): Promise<ArchiveFileEntry[]> {
+  const files: ArchiveFileEntry[] = [];
+  for await (const [name, entry] of handle.entries()) {
+    const relativePath = `${prefix}/${name}`;
+    if (entry.kind === "file") files.push({ file: await entry.getFile(), relativePath });
+    else files.push(...await filesFromDirectory(entry, relativePath));
+  }
+  return files;
 }
 
 function safeDate(message: TelegramMessage) {
@@ -565,6 +657,7 @@ export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
   const [sourceLabel, setSourceLabel] = useState("Sample archive");
+  const [restoringArchive, setRestoringArchive] = useState(true);
   const [mediaFileCount, setMediaFileCount] = useState(0);
   const [viewerMedia, setViewerMedia] = useState<MediaViewerItem | null>(null);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
@@ -589,6 +682,25 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const handle = await readCachedDirectory();
+        if (!handle || !active) return;
+        setSourceLabel(handle.name);
+        if (await handle.queryPermission({ mode: "read" }) !== "granted") return;
+        const files = await filesFromDirectory(handle);
+        if (active) await loadFiles(files, handle.name);
+      } catch {
+        // A stale or unavailable handle falls back to the normal folder picker.
+      } finally {
+        if (active) setRestoringArchive(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!viewerMedia && !mediaLibraryOpen) return;
@@ -723,33 +835,38 @@ export default function Home() {
     setViewerMedia({ kind, url, label, alt, mimeType, posterUrl });
   }
 
-  async function loadFiles(fileList: FileList | File[]) {
+  async function loadFiles(fileList: FileList | File[] | ArchiveFileEntry[], preferredLabel?: string) {
     setError("");
-    const files = Array.from(fileList);
-    const jsonFile = files.find((file) => file.name.toLocaleLowerCase() === "result.json") ?? files.find((file) => file.name.endsWith(".json"));
-    if (!jsonFile) {
+    const entries = Array.from(fileList).map((entry) => entry instanceof File
+      ? { file: entry, relativePath: entry.webkitRelativePath || entry.name }
+      : entry);
+    const jsonEntry = entries.find(({ file }) => file.name.toLocaleLowerCase() === "result.json")
+      ?? entries.find(({ file }) => file.name.endsWith(".json"));
+    if (!jsonEntry) {
       setError("Choose the Telegram export folder or its result.json file.");
+      setRestoringArchive(false);
       return;
     }
 
     try {
+      const jsonFile = jsonEntry.file;
       const data = JSON.parse(await jsonFile.text()) as RawExport;
       const nextChat = extractChat(data);
       closeMediaViewer();
       resetObjectUrls();
       const media = new Map<string, File>();
-      files.forEach((file) => {
-        const relative = normalizePath(file.webkitRelativePath || file.name);
+      entries.forEach(({ file, relativePath }) => {
+        const relative = normalizePath(relativePath || file.name);
         media.set(relative, file);
         const withoutRoot = relative.includes("/") ? relative.slice(relative.indexOf("/") + 1) : relative;
         media.set(withoutRoot, file);
         if (!media.has(file.name)) media.set(file.name, file);
       });
       mediaFilesRef.current = media;
-      setMediaFileCount(Math.max(0, files.length - 1));
+      setMediaFileCount(Math.max(0, entries.length - 1));
       setChat({ ...nextChat, messages: nextChat.messages.slice().sort((a, b) => safeDate(a).getTime() - safeDate(b).getTime()) });
       setIsDemo(false);
-      setSourceLabel(jsonFile.webkitRelativePath?.split("/")[0] || jsonFile.name);
+      setSourceLabel(preferredLabel || jsonEntry.relativePath.split("/")[0] || jsonFile.name);
       setQuery("");
       setSenderFilter("all");
       setMediaFilter("all");
@@ -761,11 +878,55 @@ export default function Home() {
       requestAnimationFrame(() => messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "This file could not be read as a Telegram export.");
+    } finally {
+      setRestoringArchive(false);
+    }
+  }
+
+  async function loadDirectory(handle: PersistentDirectoryHandle) {
+    setSourceLabel(handle.name);
+    setRestoringArchive(true);
+    try {
+      const files = await filesFromDirectory(handle);
+      await loadFiles(files, handle.name);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "This folder could not be reopened.");
+      setRestoringArchive(false);
+    }
+  }
+
+  async function chooseFolder() {
+    setError("");
+    const picker = (window as typeof window & {
+      showDirectoryPicker?: (options?: { mode?: "read" }) => Promise<PersistentDirectoryHandle>;
+    }).showDirectoryPicker;
+    if (!picker) {
+      folderInputRef.current?.click();
+      return;
+    }
+    try {
+      if (isDemo) {
+        const cached = await readCachedDirectory();
+        if (cached && await cached.requestPermission({ mode: "read" }) === "granted") {
+          await loadDirectory(cached);
+          return;
+        }
+      }
+      const handle = await picker({ mode: "read" });
+      await cacheDirectory(handle);
+      await loadDirectory(handle);
+    } catch (pickerError) {
+      if (pickerError instanceof DOMException && pickerError.name === "AbortError") return;
+      setError(pickerError instanceof Error ? pickerError.message : "This folder could not be opened.");
+      setRestoringArchive(false);
     }
   }
 
   function onFolderChange(event: ChangeEvent<HTMLInputElement>) {
-    if (event.target.files?.length) void loadFiles(event.target.files);
+    if (event.target.files?.length) {
+      void clearCachedDirectory();
+      void loadFiles(event.target.files);
+    }
     event.target.value = "";
   }
 
@@ -881,14 +1042,14 @@ export default function Home() {
     return url ? (
       <a className="file-card" href={url} download={label}>{cardContent}</a>
     ) : (
-      <button className="file-card is-missing" type="button" onClick={() => folderInputRef.current?.click()}>{cardContent}</button>
+      <button className="file-card is-missing" type="button" onClick={() => void chooseFolder()}>{cardContent}</button>
     );
   }
 
   function openLibraryMedia(message: TelegramMessage) {
     const path = message.photo ?? message.file;
     if (!path || !mediaFile(path)) {
-      folderInputRef.current?.click();
+      void chooseFolder();
       return;
     }
     const kind = mediaKind(message);
@@ -956,7 +1117,7 @@ export default function Home() {
               {theme === "light" ? "☰" : "☀"}
             </button>
             <div className="telegram-brand"><strong>Stillgram</strong><small>local archive</small></div>
-            <button className="telegram-compose" type="button" onClick={() => folderInputRef.current?.click()} aria-label="Open Telegram export">＋</button>
+            <button className="telegram-compose" type="button" onClick={() => void chooseFolder()} aria-label="Open Telegram export">＋</button>
           </div>
 
           <div className="chat-list-label">Chats</div>
@@ -1034,7 +1195,7 @@ export default function Home() {
           <div className="archive-switcher" aria-label="Archive source controls">
             <span><small>Archive source</small><strong>{sourceLabel}</strong></span>
             <div>
-              <button className="primary" type="button" onClick={() => folderInputRef.current?.click()}>▧ Choose folder</button>
+              <button className="primary" type="button" onClick={() => void chooseFolder()}>▧ Choose folder</button>
               <button type="button" onClick={() => jsonInputRef.current?.click()}>☷ Messages only</button>
             </div>
           </div>
@@ -1043,8 +1204,8 @@ export default function Home() {
             <div className="welcome-strip">
               <span className="welcome-lock">◇</span>
               <div>
-                <strong>This is a sample conversation</strong>
-                <p>Open your Telegram export folder to replace it. Nothing is uploaded.</p>
+                <strong>{restoringArchive ? "Restoring your saved archive…" : sourceLabel !== "Sample archive" ? "Reconnect your saved archive" : "This is a sample conversation"}</strong>
+                <p>{restoringArchive ? "Checking the folder permission stored in this browser." : "Open your Telegram export folder to replace it. Nothing is uploaded."}</p>
               </div>
             </div>
           )}
@@ -1053,7 +1214,7 @@ export default function Home() {
             <div className="media-connect-banner" role="status">
               <span>▧</span>
               <div><strong>Media folder isn’t connected</strong><p>Choose the complete ChatExport folder to display photos, GIFs, stickers, voice notes, and videos.</p></div>
-              <button type="button" onClick={() => folderInputRef.current?.click()}>Connect media</button>
+              <button type="button" onClick={() => void chooseFolder()}>Connect media</button>
             </div>
           )}
 
@@ -1199,7 +1360,7 @@ export default function Home() {
                   <span>▦</span>
                   <strong>No media connected</strong>
                   <p>Choose the complete Telegram export folder to browse its photos and videos.</p>
-                  <button type="button" onClick={() => folderInputRef.current?.click()}>Choose folder</button>
+                  <button type="button" onClick={() => void chooseFolder()}>Choose folder</button>
                 </div>
               )}
               {visibleLibraryMedia.length < libraryMedia.length && (
