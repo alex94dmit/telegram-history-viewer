@@ -13,6 +13,20 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const resizeObserverGuard = `
+  (() => {
+    const ignoredMessages = new Set([
+      "ResizeObserver loop completed with undelivered notifications.",
+      "ResizeObserver loop limit exceeded",
+    ]);
+    window.addEventListener("error", (event) => {
+      if (!ignoredMessages.has(event.message)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
+  })();
+`;
+
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
@@ -45,6 +59,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: resizeObserverGuard }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

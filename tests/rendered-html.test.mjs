@@ -70,6 +70,7 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /Close media viewer/);
   assert.match(layout, /Stillgram/);
   assert.match(layout, /\/og\.png/);
+  assert.match(layout, /ResizeObserver loop completed with undelivered notifications/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });
