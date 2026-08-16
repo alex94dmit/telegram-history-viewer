@@ -1617,17 +1617,15 @@ body {
 .chat-list-row {
   width: calc(100% - 12px);
   min-height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
+  position: relative;
   margin: 0 6px;
-  padding: 8px 10px;
+  padding: 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
   color: var(--ink);
   text-align: left;
-  cursor: pointer;
+  overflow: hidden;
 }
 
 .chat-list-row:hover {
@@ -1637,6 +1635,44 @@ body {
 .chat-list-row.selected {
   background: var(--tg-blue);
   color: white;
+}
+
+.chat-list-open {
+  width: 100%;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 0;
+  padding: 8px 38px 8px 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-list-rename {
+  width: 28px;
+  height: 28px;
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.chat-list-rename:hover,
+.chat-list-rename:focus-visible {
+  background: color-mix(in srgb, white 18%, transparent);
+  color: white;
+  outline: none;
 }
 
 .chat-list-row .avatar,

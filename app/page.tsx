@@ -1098,6 +1098,7 @@ export default function Home() {
   function startConversationRename() {
     setConversationNameDraft(conversationName);
     setRenamingConversation(true);
+    if (window.matchMedia("(max-width: 880px)").matches) setSidebarOpen(false);
   }
 
   function cancelConversationRename() {
@@ -1308,13 +1309,16 @@ export default function Home() {
           </div>
 
           <div className="chat-list-label">Chats</div>
-          <button className="chat-list-row selected" type="button" onClick={clearFilters}>
-            <div className="avatar large">{conversationInitials}</div>
-            <div className="chat-list-copy">
-              <span><strong>{conversationName}</strong><time>{latestMessage ? shortDateFormatter.format(safeDate(latestMessage)) : ""}</time></span>
-              <p>{latestPreview}</p>
-            </div>
-          </button>
+          <div className="chat-list-row selected">
+            <button className="chat-list-open" type="button" onClick={clearFilters} aria-label={`Open ${conversationName} chat`}>
+              <div className="avatar large">{conversationInitials}</div>
+              <div className="chat-list-copy">
+                <span><strong>{conversationName}</strong><time>{latestMessage ? shortDateFormatter.format(safeDate(latestMessage)) : ""}</time></span>
+                <p>{latestPreview}</p>
+              </div>
+            </button>
+            <button className="chat-list-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from chat list" title="Rename chat">✎</button>
+          </div>
 
           <div className="archive-source">
             <span className="source-icon">✓</span>
