@@ -869,6 +869,8 @@ export default function Home() {
 
   const otherName = chat.name ?? participants[0] ?? "Contact";
   const meName = participants.find((name) => name !== otherName) ?? participants[1] ?? "You";
+  const conversationName = meName === otherName ? otherName : `${meName} & ${otherName}`;
+  const conversationInitials = `${initials(meName).slice(0, 1)}${initials(otherName).slice(0, 1)}`;
   const peerIdDigits = String(chat.id ?? "").replace(/\D/g, "");
   const isMine = (message: TelegramMessage) => {
     const senderIdDigits = String(message.from_id ?? message.actor_id ?? "").replace(/\D/g, "");
@@ -1258,9 +1260,9 @@ export default function Home() {
 
           <div className="chat-list-label">Chats</div>
           <button className="chat-list-row selected" type="button" onClick={clearFilters}>
-            <div className="avatar large">{initials(otherName)}</div>
+            <div className="avatar large">{conversationInitials}</div>
             <div className="chat-list-copy">
-              <span><strong>{otherName}</strong><time>{latestMessage ? shortDateFormatter.format(safeDate(latestMessage)) : ""}</time></span>
+              <span><strong>{conversationName}</strong><time>{latestMessage ? shortDateFormatter.format(safeDate(latestMessage)) : ""}</time></span>
               <p>{latestPreview}</p>
             </div>
           </button>
@@ -1316,8 +1318,8 @@ export default function Home() {
               >
                 ☰
               </button>
-              <div className="avatar">{initials(otherName)}</div>
-              <span><strong>{otherName}</strong><small>{chat.messages.length.toLocaleString()} archived messages</small></span>
+              <div className="avatar">{conversationInitials}</div>
+              <span><strong>{conversationName}</strong><small>{chat.messages.length.toLocaleString()} archived messages</small></span>
             </div>
             <button
               className="view-media-button"

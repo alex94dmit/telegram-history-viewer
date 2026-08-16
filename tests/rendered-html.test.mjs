@@ -27,6 +27,7 @@ test("server-renders the Stillgram archive viewer", async () => {
   assert.match(html, /Open a Telegram export folder/);
   assert.match(html, /Message filters/);
   assert.match(html, /Sample archive/);
+  assert.match(html, /Jamie &amp; Alex Chen/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
@@ -51,6 +52,8 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /className="theme-toggle"/);
   assert.match(page, /Use.*theme/);
   assert.match(page, /selectSenderFilter/);
+  assert.match(page, /conversationName/);
+  assert.match(page, /conversationInitials/);
   assert.match(page, /scrollMessagesToLatest/);
   assert.match(page, /View Media/);
   assert.match(page, /Shared media/);
