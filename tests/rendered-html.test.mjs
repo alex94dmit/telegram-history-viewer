@@ -38,9 +38,11 @@ test("keeps local import behavior explicit in the source", async () => {
   ]);
 
   assert.match(page, /webkitdirectory/);
-  assert.match(page, /showDirectoryPicker/);
   assert.match(page, /indexedDB/);
-  assert.match(page, /queryPermission/);
+  assert.match(page, /cacheArchive/);
+  assert.match(page, /readCachedArchive/);
+  assert.match(page, /saved for refresh/);
+  assert.doesNotMatch(page, /showDirectoryPicker|queryPermission|requestPermission/);
   assert.match(page, /result\.json/);
   assert.match(page, /Archive source controls/);
   assert.match(page, /View Media/);

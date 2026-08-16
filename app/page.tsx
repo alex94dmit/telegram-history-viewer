@@ -81,19 +81,13 @@ type ArchiveFileEntry = {
   relativePath: string;
 };
 
-type PersistentFileHandle = {
-  kind: "file";
-  name: string;
-  getFile(): Promise<File>;
+type CachedArchiveRecord = ArchiveFileEntry;
+type CachedArchiveMetadata = {
+  label: string;
+  count: number;
+  cachedAt: number;
 };
-
-type PersistentDirectoryHandle = {
-  kind: "directory";
-  name: string;
-  entries(): AsyncIterableIterator<[string, PersistentFileHandle | PersistentDirectoryHandle]>;
-  queryPermission(options?: { mode?: "read" }): Promise<PermissionState>;
-  requestPermission(options?: { mode?: "read" }): Promise<PermissionState>;
-};
+type ArchiveCacheStatus = "checking" | "saving" | "saved" | "idle" | "unavailable";
 
 type SenderFilter = "all" | "me" | "them";
 type MediaFilter = "all" | "photos" | "videos" | "voice" | "files" | "links";
@@ -196,9 +190,10 @@ const dayFormatter = new Intl.DateTimeFormat(undefined, {
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 const shortDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
 const mediaDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
-const ARCHIVE_CACHE_DATABASE = "stillgram-local-archive";
-const ARCHIVE_CACHE_STORE = "handles";
-const ARCHIVE_CACHE_KEY = "telegram-export-folder";
+const ARCHIVE_CACHE_DATABASE = "stillgram-local-archive-files";
+const ARCHIVE_FILES_STORE = "files";
+const ARCHIVE_META_STORE = "metadata";
+const ARCHIVE_CACHE_KEY = "current-archive";
 
 function messageText(message: TelegramMessage): string {
   const source = message.text_entities ?? message.text ?? "";
@@ -215,8 +210,11 @@ function openArchiveCache() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(ARCHIVE_CACHE_DATABASE, 1);
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(ARCHIVE_CACHE_STORE)) {
-        request.result.createObjectStore(ARCHIVE_CACHE_STORE);
+      if (!request.result.objectStoreNames.contains(ARCHIVE_FILES_STORE)) {
+        request.result.createObjectStore(ARCHIVE_FILES_STORE, { keyPath: "relativePath" });
+      }
+      if (!request.result.objectStoreNames.contains(ARCHIVE_META_STORE)) {
+        request.result.createObjectStore(ARCHIVE_META_STORE);
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -224,61 +222,73 @@ function openArchiveCache() {
   });
 }
 
-async function readCachedDirectory() {
+function waitForTransaction(transaction: IDBTransaction) {
+  return new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+function requestValue<T>(request: IDBRequest<T>) {
+  return new Promise<T>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readCachedArchive() {
   if (typeof indexedDB === "undefined") return undefined;
   try {
     const database = await openArchiveCache();
-    const transaction = database.transaction(ARCHIVE_CACHE_STORE, "readonly");
-    const request = transaction.objectStore(ARCHIVE_CACHE_STORE).get(ARCHIVE_CACHE_KEY);
-    const handle = await new Promise<PersistentDirectoryHandle | undefined>((resolve, reject) => {
-      request.onsuccess = () => resolve(request.result as PersistentDirectoryHandle | undefined);
-      request.onerror = () => reject(request.error);
-    });
+    const transaction = database.transaction([ARCHIVE_FILES_STORE, ARCHIVE_META_STORE], "readonly");
+    const recordsRequest = transaction.objectStore(ARCHIVE_FILES_STORE).getAll() as IDBRequest<CachedArchiveRecord[]>;
+    const metadataRequest = transaction.objectStore(ARCHIVE_META_STORE).get(ARCHIVE_CACHE_KEY) as IDBRequest<CachedArchiveMetadata | undefined>;
+    const [entries, metadata] = await Promise.all([requestValue(recordsRequest), requestValue(metadataRequest)]);
+    await waitForTransaction(transaction);
     database.close();
-    return handle;
+    if (!metadata || !entries.length || metadata.count !== entries.length) return undefined;
+    return { entries, label: metadata.label };
   } catch {
     return undefined;
   }
 }
 
-async function cacheDirectory(handle: PersistentDirectoryHandle) {
-  if (typeof indexedDB === "undefined") return;
+async function cacheArchive(entries: ArchiveFileEntry[], label: string) {
+  if (typeof indexedDB === "undefined") return false;
   try {
     const database = await openArchiveCache();
-    const transaction = database.transaction(ARCHIVE_CACHE_STORE, "readwrite");
-    transaction.objectStore(ARCHIVE_CACHE_STORE).put(handle, ARCHIVE_CACHE_KEY);
-    await new Promise<void>((resolve, reject) => {
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
-    });
+    const transaction = database.transaction([ARCHIVE_FILES_STORE, ARCHIVE_META_STORE], "readwrite");
+    const filesStore = transaction.objectStore(ARCHIVE_FILES_STORE);
+    filesStore.clear();
+    entries.forEach((entry) => filesStore.put(entry));
+    transaction.objectStore(ARCHIVE_META_STORE).put({
+      label,
+      count: entries.length,
+      cachedAt: Date.now(),
+    } satisfies CachedArchiveMetadata, ARCHIVE_CACHE_KEY);
+    await waitForTransaction(transaction);
     database.close();
+    return true;
   } catch {
-    // The archive still opens when a browser does not persist file-system handles.
+    // The archive still opens when browser storage is unavailable or full.
+    return false;
   }
 }
 
-async function clearCachedDirectory() {
-  if (typeof indexedDB === "undefined") return;
-  try {
-    const database = await openArchiveCache();
-    const transaction = database.transaction(ARCHIVE_CACHE_STORE, "readwrite");
-    transaction.objectStore(ARCHIVE_CACHE_STORE).delete(ARCHIVE_CACHE_KEY);
-    await new Promise<void>((resolve) => { transaction.oncomplete = () => resolve(); });
-    database.close();
-  } catch {
-    // Ignore unavailable browser storage.
-  }
+function archiveEntries(fileList: FileList | File[]) {
+  return Array.from(fileList).map((file) => ({
+    file,
+    relativePath: file.webkitRelativePath || file.name,
+  }));
 }
 
-async function filesFromDirectory(handle: PersistentDirectoryHandle, prefix = handle.name): Promise<ArchiveFileEntry[]> {
-  const files: ArchiveFileEntry[] = [];
-  for await (const [name, entry] of handle.entries()) {
-    const relativePath = `${prefix}/${name}`;
-    if (entry.kind === "file") files.push({ file: await entry.getFile(), relativePath });
-    else files.push(...await filesFromDirectory(entry, relativePath));
-  }
-  return files;
+function archiveLabel(entries: ArchiveFileEntry[]) {
+  const jsonEntry = entries.find(({ file }) => file.name.toLocaleLowerCase() === "result.json")
+    ?? entries.find(({ file }) => file.name.toLocaleLowerCase().endsWith(".json"));
+  return jsonEntry?.relativePath.includes("/")
+    ? jsonEntry.relativePath.slice(0, jsonEntry.relativePath.indexOf("/"))
+    : jsonEntry?.file.name ?? "Telegram export";
 }
 
 function safeDate(message: TelegramMessage) {
@@ -658,6 +668,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [sourceLabel, setSourceLabel] = useState("Sample archive");
   const [restoringArchive, setRestoringArchive] = useState(true);
+  const [cacheStatus, setCacheStatus] = useState<ArchiveCacheStatus>("checking");
   const [mediaFileCount, setMediaFileCount] = useState(0);
   const [viewerMedia, setViewerMedia] = useState<MediaViewerItem | null>(null);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
@@ -687,14 +698,14 @@ export default function Home() {
     let active = true;
     void (async () => {
       try {
-        const handle = await readCachedDirectory();
-        if (!handle || !active) return;
-        setSourceLabel(handle.name);
-        if (await handle.queryPermission({ mode: "read" }) !== "granted") return;
-        const files = await filesFromDirectory(handle);
-        if (active) await loadFiles(files, handle.name);
+        const cached = await readCachedArchive();
+        if (!cached || !active) {
+          if (active) setCacheStatus(typeof indexedDB === "undefined" ? "unavailable" : "idle");
+          return;
+        }
+        if (await loadFiles(cached.entries, cached.label)) setCacheStatus("saved");
       } catch {
-        // A stale or unavailable handle falls back to the normal folder picker.
+        if (active) setCacheStatus("unavailable");
       } finally {
         if (active) setRestoringArchive(false);
       }
@@ -792,6 +803,13 @@ export default function Home() {
   );
   const visibleLibraryMedia = libraryMedia.slice(0, mediaLibraryLimit);
   const needsMediaFolder = !isDemo && mediaFileCount === 0 && stats.photos + stats.videos + stats.voice + stats.files > 0;
+  const cacheStatusLabel = cacheStatus === "saving"
+    ? " · saving for refresh…"
+    : cacheStatus === "saved"
+      ? " · saved for refresh"
+      : cacheStatus === "unavailable"
+        ? " · available in this tab"
+        : "";
 
   function resetObjectUrls() {
     mediaUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -835,7 +853,7 @@ export default function Home() {
     setViewerMedia({ kind, url, label, alt, mimeType, posterUrl });
   }
 
-  async function loadFiles(fileList: FileList | File[] | ArchiveFileEntry[], preferredLabel?: string) {
+  async function loadFiles(fileList: FileList | File[] | ArchiveFileEntry[], preferredLabel?: string): Promise<boolean> {
     setError("");
     const entries = Array.from(fileList).map((entry) => entry instanceof File
       ? { file: entry, relativePath: entry.webkitRelativePath || entry.name }
@@ -845,7 +863,7 @@ export default function Home() {
     if (!jsonEntry) {
       setError("Choose the Telegram export folder or its result.json file.");
       setRestoringArchive(false);
-      return;
+      return false;
     }
 
     try {
@@ -876,56 +894,32 @@ export default function Home() {
       setMonthFilter("all");
       setVisibleLimit(240);
       requestAnimationFrame(() => messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight }));
+      return true;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "This file could not be read as a Telegram export.");
+      return false;
     } finally {
       setRestoringArchive(false);
     }
   }
 
-  async function loadDirectory(handle: PersistentDirectoryHandle) {
-    setSourceLabel(handle.name);
-    setRestoringArchive(true);
-    try {
-      const files = await filesFromDirectory(handle);
-      await loadFiles(files, handle.name);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "This folder could not be reopened.");
-      setRestoringArchive(false);
-    }
-  }
-
-  async function chooseFolder() {
+  function chooseFolder() {
     setError("");
-    const picker = (window as typeof window & {
-      showDirectoryPicker?: (options?: { mode?: "read" }) => Promise<PersistentDirectoryHandle>;
-    }).showDirectoryPicker;
-    if (!picker) {
-      folderInputRef.current?.click();
-      return;
-    }
-    try {
-      if (isDemo) {
-        const cached = await readCachedDirectory();
-        if (cached && await cached.requestPermission({ mode: "read" }) === "granted") {
-          await loadDirectory(cached);
-          return;
-        }
-      }
-      const handle = await picker({ mode: "read" });
-      await cacheDirectory(handle);
-      await loadDirectory(handle);
-    } catch (pickerError) {
-      if (pickerError instanceof DOMException && pickerError.name === "AbortError") return;
-      setError(pickerError instanceof Error ? pickerError.message : "This folder could not be opened.");
-      setRestoringArchive(false);
-    }
+    folderInputRef.current?.click();
   }
 
   function onFolderChange(event: ChangeEvent<HTMLInputElement>) {
     if (event.target.files?.length) {
-      void clearCachedDirectory();
-      void loadFiles(event.target.files);
+      const entries = archiveEntries(event.target.files);
+      const label = archiveLabel(entries);
+      setCacheStatus("saving");
+      void (async () => {
+        if (!await loadFiles(entries, label)) {
+          setCacheStatus("idle");
+          return;
+        }
+        setCacheStatus(await cacheArchive(entries, label) ? "saved" : "unavailable");
+      })();
     }
     event.target.value = "";
   }
@@ -933,7 +927,18 @@ export default function Home() {
   function onDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragging(false);
-    if (event.dataTransfer.files.length) void loadFiles(event.dataTransfer.files);
+    if (event.dataTransfer.files.length) {
+      const entries = archiveEntries(event.dataTransfer.files);
+      const label = archiveLabel(entries);
+      setCacheStatus("saving");
+      void (async () => {
+        if (!await loadFiles(entries, label)) {
+          setCacheStatus("idle");
+          return;
+        }
+        setCacheStatus(await cacheArchive(entries, label) ? "saved" : "unavailable");
+      })();
+    }
   }
 
   function clearFilters() {
@@ -1161,7 +1166,7 @@ export default function Home() {
 
           <div className="sidebar-foot">
             <span className="privacy-dot">●</span>
-            <p><strong>Private archive</strong>Your files stay in this browser tab.</p>
+            <p><strong>Private archive</strong>Your files stay on this device.</p>
           </div>
         </aside>
 
@@ -1193,7 +1198,7 @@ export default function Home() {
           </div>
 
           <div className="archive-switcher" aria-label="Archive source controls">
-            <span><small>Archive source</small><strong>{sourceLabel}</strong></span>
+            <span><small>Archive source{cacheStatusLabel}</small><strong>{sourceLabel}</strong></span>
             <div>
               <button className="primary" type="button" onClick={() => void chooseFolder()}>▧ Choose folder</button>
               <button type="button" onClick={() => jsonInputRef.current?.click()}>☷ Messages only</button>
@@ -1204,8 +1209,8 @@ export default function Home() {
             <div className="welcome-strip">
               <span className="welcome-lock">◇</span>
               <div>
-                <strong>{restoringArchive ? "Restoring your saved archive…" : sourceLabel !== "Sample archive" ? "Reconnect your saved archive" : "This is a sample conversation"}</strong>
-                <p>{restoringArchive ? "Checking the folder permission stored in this browser." : "Open your Telegram export folder to replace it. Nothing is uploaded."}</p>
+                <strong>{restoringArchive ? "Restoring your saved archive…" : "This is a sample conversation"}</strong>
+                <p>{restoringArchive ? "Checking this browser for locally saved archive files." : "Open your Telegram export folder to replace it. Nothing is uploaded."}</p>
               </div>
             </div>
           )}
