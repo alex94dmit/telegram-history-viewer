@@ -806,7 +806,7 @@ export default function Home() {
   }, [theme]);
 
   useEffect(() => {
-    const narrowViewport = window.matchMedia("(max-width: 880px)");
+    const narrowViewport = window.matchMedia("(max-width: 560px)");
     if (narrowViewport.matches) {
       sidebarAutoHiddenRef.current = true;
       setSidebarOpen(false);
@@ -824,7 +824,7 @@ export default function Home() {
   useEffect(() => {
     if (!sidebarOpen) return;
     const closeSidebarOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape" && window.matchMedia("(max-width: 880px)").matches) closeSidebarManually();
+      if (event.key === "Escape" && window.matchMedia("(max-width: 560px)").matches) closeSidebarManually();
     };
     window.addEventListener("keydown", closeSidebarOnEscape);
     return () => window.removeEventListener("keydown", closeSidebarOnEscape);
@@ -1107,14 +1107,14 @@ export default function Home() {
   function startConversationRename() {
     setConversationNameDraft(conversationName);
     setRenamingConversation(true);
-    if (window.matchMedia("(max-width: 880px)").matches) {
+    if (window.matchMedia("(max-width: 560px)").matches) {
       sidebarAutoHiddenRef.current = true;
       setSidebarOpen(false);
     }
   }
 
   function toggleSidebar() {
-    const narrowViewport = window.matchMedia("(max-width: 880px)").matches;
+    const narrowViewport = window.matchMedia("(max-width: 560px)").matches;
     setSidebarOpen((open) => {
       const nextOpen = !open;
       if (narrowViewport) sidebarAutoHiddenRef.current = false;
@@ -1124,7 +1124,7 @@ export default function Home() {
   }
 
   function closeSidebarManually() {
-    if (window.matchMedia("(max-width: 880px)").matches) sidebarAutoHiddenRef.current = false;
+    if (window.matchMedia("(max-width: 560px)").matches) sidebarAutoHiddenRef.current = false;
     setSidebarOpen(false);
   }
 

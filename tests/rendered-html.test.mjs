@@ -33,10 +33,11 @@ test("server-renders the Stillgram archive viewer", async () => {
 });
 
 test("keeps local import behavior explicit in the source", async () => {
-  const [page, layout, packageJson] = await Promise.all([
+  const [page, layout, packageJson, styles] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /webkitdirectory/);
@@ -55,6 +56,11 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /restoreAfterInitialNarrowLayout/);
   assert.match(page, /function toggleSidebar/);
   assert.match(page, /function closeSidebarManually/);
+  assert.match(page, /max-width: 560px/);
+  assert.doesNotMatch(page, /max-width: 640px/);
+  assert.doesNotMatch(page, /max-width: 880px/);
+  assert.match(styles, /@media \(min-width: 561px\) and \(max-width: 1000px\)/);
+  assert.match(styles, /grid-template-columns: clamp\(240px, 34vw, 300px\)/);
   assert.match(page, /className="theme-toggle"/);
   assert.match(page, /Use.*theme/);
   assert.match(page, /selectSenderFilter/);
