@@ -24,7 +24,7 @@ test("server-renders the Stillgram archive viewer", async () => {
   assert.match(html, /Stillgram/);
   assert.match(html, /local archive/);
   assert.match(html, /Private archive/);
-  assert.match(html, /Open Telegram export/);
+  assert.match(html, /Open a Telegram export folder/);
   assert.match(html, /Message filters/);
   assert.match(html, /Sample archive/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
@@ -44,7 +44,7 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /saved for refresh/);
   assert.doesNotMatch(page, /showDirectoryPicker|queryPermission|requestPermission/);
   assert.match(page, /result\.json/);
-  assert.match(page, /Archive source controls/);
+  assert.match(page, /aria-label="Archive source"/);
   assert.match(page, /aria-controls="archive-sidebar"/);
   assert.match(page, /Hide archive panel/);
   assert.match(page, /Show archive panel/);
@@ -56,8 +56,9 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /Shared media/);
   assert.match(page, /No media connected/);
   assert.match(page, /Show older media/);
-  assert.match(page, /▧ Choose folder/);
-  assert.match(page, /☷ Messages only/);
+  assert.match(page, /className="control-tooltip" role="tooltip"/);
+  assert.match(page, /Open a Telegram export folder/);
+  assert.doesNotMatch(page, /▧ Choose folder|☷ Messages only|jsonInputRef/);
   assert.match(page, /URL\.createObjectURL/);
   assert.match(page, /IntersectionObserver/);
   assert.match(page, /rootMargin: "700px 0px"/);

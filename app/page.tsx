@@ -676,7 +676,6 @@ export default function Home() {
   const [mediaLibraryFilter, setMediaLibraryFilter] = useState<LibraryMediaFilter>("all");
   const [mediaLibraryLimit, setMediaLibraryLimit] = useState(120);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const jsonInputRef = useRef<HTMLInputElement>(null);
   const mediaFilesRef = useRef(new Map<string, File>());
   const mediaUrlsRef = useRef(new Map<string, string>());
   const viewerUrlRef = useRef<string | null>(null);
@@ -1160,7 +1159,6 @@ export default function Home() {
         onChange={onFolderChange}
         {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
       />
-      <input ref={jsonInputRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={onFolderChange} />
 
       <section className={`workspace${sidebarOpen ? "" : " sidebar-closed"}`}>
         <aside className="sidebar" id="archive-sidebar" aria-label="Archive panel" aria-hidden={sidebarOpen ? undefined : true}>
@@ -1169,7 +1167,10 @@ export default function Home() {
               {theme === "light" ? "☾" : "☀"}
             </button>
             <div className="telegram-brand"><strong>Stillgram</strong><small>local archive</small></div>
-            <button className="telegram-compose" type="button" onClick={() => void chooseFolder()} aria-label="Open Telegram export">＋</button>
+            <button className="telegram-compose" type="button" onClick={() => void chooseFolder()} aria-label="Open a Telegram export folder">
+              ＋
+              <span className="control-tooltip" role="tooltip">Open a Telegram export folder</span>
+            </button>
           </div>
 
           <div className="chat-list-label">Chats</div>
@@ -1256,12 +1257,8 @@ export default function Home() {
             </select>
           </div>
 
-          <div className="archive-switcher" aria-label="Archive source controls">
+          <div className="archive-switcher" aria-label="Archive source">
             <span><small>Archive source{cacheStatusLabel}</small><strong>{sourceLabel}</strong></span>
-            <div>
-              <button className="primary" type="button" onClick={() => void chooseFolder()}>▧ Choose folder</button>
-              <button type="button" onClick={() => jsonInputRef.current?.click()}>☷ Messages only</button>
-            </div>
           </div>
 
           {isDemo && (

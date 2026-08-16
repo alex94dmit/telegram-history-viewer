@@ -1550,6 +1550,7 @@ body {
 }
 
 .telegram-compose {
+  position: relative;
   background: var(--tg-blue);
   color: white;
   font-size: 24px;
@@ -1558,6 +1559,33 @@ body {
 
 .telegram-compose:hover {
   background: var(--tg-blue-hover);
+}
+
+.control-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: 230px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--ink) 92%, transparent);
+  color: var(--paper);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  font-size: 10px;
+  font-weight: 550;
+  line-height: 1.3;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.telegram-compose:hover .control-tooltip,
+.telegram-compose:focus-visible .control-tooltip {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .telegram-brand {
@@ -1712,28 +1740,6 @@ body {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.archive-switcher > div {
-  display: flex;
-  gap: 6px;
-}
-
-.archive-switcher button {
-  min-height: 30px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 15px;
-  background: var(--tg-hover);
-  color: var(--tg-blue);
-  cursor: pointer;
-  font-size: 9px;
-  font-weight: 650;
-}
-
-.archive-switcher button.primary {
-  background: var(--tg-blue);
-  color: white;
 }
 
 .filter-section {
@@ -2772,18 +2778,6 @@ body {
 
   .archive-switcher {
     padding: 6px 8px;
-  }
-
-  .archive-switcher > span {
-    display: none;
-  }
-
-  .archive-switcher > div {
-    width: 100%;
-  }
-
-  .archive-switcher button {
-    flex: 1;
   }
 
   .sticker-media,
