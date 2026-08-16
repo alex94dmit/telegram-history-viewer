@@ -78,6 +78,7 @@ type RawExport = TelegramChat & {
 
 type SenderFilter = "all" | "me" | "them";
 type MediaFilter = "all" | "photos" | "videos" | "voice" | "files" | "links";
+type LibraryMediaFilter = "all" | "photos" | "videos";
 type MediaViewerItem = {
   kind: "photo" | "video";
   url: string;
@@ -175,6 +176,7 @@ const dayFormatter = new Intl.DateTimeFormat(undefined, {
 });
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 const shortDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
+const mediaDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
 function messageText(message: TelegramMessage): string {
   const source = message.text_entities ?? message.text ?? "";
@@ -565,6 +567,9 @@ export default function Home() {
   const [sourceLabel, setSourceLabel] = useState("Sample archive");
   const [mediaFileCount, setMediaFileCount] = useState(0);
   const [viewerMedia, setViewerMedia] = useState<MediaViewerItem | null>(null);
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
+  const [mediaLibraryFilter, setMediaLibraryFilter] = useState<LibraryMediaFilter>("all");
+  const [mediaLibraryLimit, setMediaLibraryLimit] = useState(120);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const mediaFilesRef = useRef(new Map<string, File>());
@@ -586,10 +591,12 @@ export default function Home() {
   }, [theme]);
 
   useEffect(() => {
-    if (!viewerMedia) return;
+    if (!viewerMedia && !mediaLibraryOpen) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") closeMediaViewer();
+      if (event.key !== "Escape") return;
+      if (viewerMedia) closeMediaViewer();
+      else setMediaLibraryOpen(false);
     };
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", closeOnEscape);
@@ -597,7 +604,7 @@ export default function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [viewerMedia, closeMediaViewer]);
+  }, [viewerMedia, mediaLibraryOpen, closeMediaViewer]);
 
   const messagesById = useMemo(
     () => new Map(chat.messages.map((message) => [String(message.id), message])),
@@ -657,6 +664,21 @@ export default function Home() {
     const last = chat.messages.at(-1) ? safeDate(chat.messages.at(-1)!) : undefined;
     return { ...media, first, last };
   }, [chat.messages]);
+  const sharedMedia = useMemo(
+    () => chat.messages
+      .filter((message) => {
+        const kind = mediaKind(message);
+        return message.media_type !== "sticker" && Boolean(message.photo ?? message.file) && (kind === "photos" || kind === "videos");
+      })
+      .slice()
+      .reverse(),
+    [chat.messages],
+  );
+  const libraryMedia = useMemo(
+    () => mediaLibraryFilter === "all" ? sharedMedia : sharedMedia.filter((message) => mediaKind(message) === mediaLibraryFilter),
+    [sharedMedia, mediaLibraryFilter],
+  );
+  const visibleLibraryMedia = libraryMedia.slice(0, mediaLibraryLimit);
   const needsMediaFolder = !isDemo && mediaFileCount === 0 && stats.photos + stats.videos + stats.voice + stats.files > 0;
 
   function resetObjectUrls() {
@@ -731,6 +753,9 @@ export default function Home() {
       setQuery("");
       setSenderFilter("all");
       setMediaFilter("all");
+      setMediaLibraryOpen(false);
+      setMediaLibraryFilter("all");
+      setMediaLibraryLimit(120);
       setMonthFilter("all");
       setVisibleLimit(240);
       requestAnimationFrame(() => messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight }));
@@ -860,6 +885,48 @@ export default function Home() {
     );
   }
 
+  function openLibraryMedia(message: TelegramMessage) {
+    const path = message.photo ?? message.file;
+    if (!path || !mediaFile(path)) {
+      folderInputRef.current?.click();
+      return;
+    }
+    const kind = mediaKind(message);
+    const label = message.file_name ?? path.split(/[\\/]/).at(-1) ?? (kind === "photos" ? "Photo" : "Video");
+    openMediaViewer(
+      path,
+      label,
+      messageText(message) || label,
+      kind === "photos" ? "photo" : "video",
+      message.mime_type,
+      message.thumbnail,
+    );
+  }
+
+  function renderLibraryMedia(message: TelegramMessage) {
+    const path = message.photo ?? message.file;
+    if (!path) return null;
+    const kind = mediaKind(message);
+    const isVideo = kind === "videos";
+    const previewUrl = resolveMedia(isVideo ? message.thumbnail : path);
+    const label = message.file_name ?? path.split(/[\\/]/).at(-1) ?? (isVideo ? "Video" : "Photo");
+    const available = Boolean(mediaFile(path));
+    return (
+      <button
+        className={`media-library-item${isVideo ? " is-video" : ""}${available ? "" : " is-missing"}`}
+        type="button"
+        key={String(message.id)}
+        onClick={() => openLibraryMedia(message)}
+        aria-label={available ? `View ${label}` : `Connect media folder to view ${label}`}
+      >
+        {previewUrl ? <img src={previewUrl} alt="" loading="lazy" decoding="async" /> : <span className="media-library-placeholder" aria-hidden="true">{isVideo ? "VID" : "IMG"}</span>}
+        {isVideo && <span className="media-library-play" aria-hidden="true">▶</span>}
+        {isVideo && message.duration_seconds ? <span className="media-library-duration">{formatDuration(message.duration_seconds)}</span> : null}
+        <span className="media-library-date">{mediaDateFormatter.format(safeDate(message))}</span>
+      </button>
+    );
+  }
+
   return (
     <main
       className={`app-shell${dragging ? " is-dragging" : ""}`}
@@ -943,6 +1010,17 @@ export default function Home() {
               <div className="avatar">{initials(otherName)}</div>
               <span><strong>{otherName}</strong><small>{chat.messages.length.toLocaleString()} archived messages</small></span>
             </div>
+            <button
+              className="view-media-button"
+              type="button"
+              disabled={sharedMedia.length === 0}
+              onClick={() => {
+                setMediaLibraryOpen(true);
+                setMediaLibraryLimit(120);
+              }}
+            >
+              <span aria-hidden="true">▦</span> View Media
+            </button>
             <label className="search-box">
               <span aria-hidden="true">⌕</span>
               <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={searchKeyboard} placeholder="Search this conversation" aria-label="Search this conversation" />
@@ -1081,6 +1159,54 @@ export default function Home() {
           </div>
         </section>
       </section>
+
+      {mediaLibraryOpen && (
+        <div
+          className="media-library-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Shared media"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setMediaLibraryOpen(false);
+          }}
+        >
+          <section className="media-library-panel">
+            <header className="media-library-header">
+              <button type="button" onClick={() => setMediaLibraryOpen(false)} aria-label="Close shared media" autoFocus>←</button>
+              <div><strong>Shared media</strong><small>{sharedMedia.length.toLocaleString()} photos and videos</small></div>
+            </header>
+            <nav className="media-library-tabs" aria-label="Filter shared media">
+              {(["all", "photos", "videos"] as const).map((filter) => {
+                const count = filter === "all" ? sharedMedia.length : sharedMedia.filter((message) => mediaKind(message) === filter).length;
+                return (
+                  <button
+                    className={mediaLibraryFilter === filter ? "active" : ""}
+                    type="button"
+                    key={filter}
+                    onClick={() => {
+                      setMediaLibraryFilter(filter);
+                      setMediaLibraryLimit(120);
+                    }}
+                  >
+                    {filter === "all" ? "Media" : filter === "photos" ? "Photos" : "Videos"}<span>{count.toLocaleString()}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="media-library-grid">
+              {visibleLibraryMedia.map(renderLibraryMedia)}
+              {visibleLibraryMedia.length === 0 && (
+                <div className="media-library-empty"><span>▦</span><strong>No media here</strong><p>Photos and videos from this chat will appear here.</p></div>
+              )}
+              {visibleLibraryMedia.length < libraryMedia.length && (
+                <button className="media-library-more" type="button" onClick={() => setMediaLibraryLimit((limit) => limit + 120)}>
+                  Show older media
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {viewerMedia && (
         <div

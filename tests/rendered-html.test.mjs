@@ -40,6 +40,9 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /webkitdirectory/);
   assert.match(page, /result\.json/);
   assert.match(page, /Archive source controls/);
+  assert.match(page, /View Media/);
+  assert.match(page, /Shared media/);
+  assert.match(page, /Show older media/);
   assert.match(page, /▧ Choose folder/);
   assert.match(page, /☷ Messages only/);
   assert.match(page, /URL\.createObjectURL/);
