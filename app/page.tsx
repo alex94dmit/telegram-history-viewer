@@ -682,6 +682,26 @@ export default function Home() {
   const viewerPosterUrlRef = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
 
+  const scrollMessagesToLatest = useCallback(() => {
+    const pinToLatest = () => {
+      const list = messageListRef.current;
+      if (!list) return;
+      const previousBehavior = list.style.scrollBehavior;
+      list.style.scrollBehavior = "auto";
+      list.scrollTop = list.scrollHeight;
+      list.style.scrollBehavior = previousBehavior;
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        pinToLatest();
+      });
+    });
+    // Media can change the list height just after the filtered messages render.
+    window.setTimeout(pinToLatest, 150);
+    window.setTimeout(pinToLatest, 600);
+    window.setTimeout(pinToLatest, 1200);
+  }, []);
+
   const closeMediaViewer = useCallback(() => {
     if (viewerUrlRef.current) URL.revokeObjectURL(viewerUrlRef.current);
     if (viewerPosterUrlRef.current) URL.revokeObjectURL(viewerPosterUrlRef.current);
@@ -893,7 +913,7 @@ export default function Home() {
       setMediaLibraryLimit(120);
       setMonthFilter("all");
       setVisibleLimit(240);
-      requestAnimationFrame(() => messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight }));
+      scrollMessagesToLatest();
       return true;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "This file could not be read as a Telegram export.");
@@ -947,6 +967,13 @@ export default function Home() {
     setMediaFilter("all");
     setMonthFilter("all");
     setVisibleLimit(240);
+    scrollMessagesToLatest();
+  }
+
+  function selectSenderFilter(filter: SenderFilter) {
+    setVisibleLimit(240);
+    setSenderFilter(filter);
+    scrollMessagesToLatest();
   }
 
   function scrollToMessage(id: number | string) {
@@ -1144,9 +1171,9 @@ export default function Home() {
 
           <nav className="filter-section" aria-label="Message filters">
             <span className="section-label">Message filters</span>
-            <button className={senderFilter === "all" ? "active" : ""} onClick={() => setSenderFilter("all")} type="button"><span>☷</span> All messages <b>{chat.messages.length.toLocaleString()}</b></button>
-            <button className={senderFilter === "me" ? "active" : ""} onClick={() => setSenderFilter("me")} type="button"><span>↗</span> Sent by you</button>
-            <button className={senderFilter === "them" ? "active" : ""} onClick={() => setSenderFilter("them")} type="button"><span>↙</span> Sent by {otherName.split(" ")[0]}</button>
+            <button className={senderFilter === "all" ? "active" : ""} onClick={() => selectSenderFilter("all")} type="button"><span>☷</span> All messages <b>{chat.messages.length.toLocaleString()}</b></button>
+            <button className={senderFilter === "me" ? "active" : ""} onClick={() => selectSenderFilter("me")} type="button"><span>↗</span> Sent by you</button>
+            <button className={senderFilter === "them" ? "active" : ""} onClick={() => selectSenderFilter("them")} type="button"><span>↙</span> Sent by {otherName.split(" ")[0]}</button>
           </nav>
 
           <div className="filter-section media-filters">
@@ -1226,9 +1253,9 @@ export default function Home() {
           {error && <div className="error-banner" role="alert"><strong>Couldn’t open that export.</strong><span>{error}</span><button type="button" onClick={() => setError("")}>×</button></div>}
 
           <div className="mobile-filter-bar" aria-label="Mobile message filters">
-            <button className={senderFilter === "all" ? "active" : ""} type="button" onClick={() => setSenderFilter("all")}>All</button>
-            <button className={senderFilter === "me" ? "active" : ""} type="button" onClick={() => setSenderFilter("me")}>You</button>
-            <button className={senderFilter === "them" ? "active" : ""} type="button" onClick={() => setSenderFilter("them")}>{otherName.split(" ")[0]}</button>
+            <button className={senderFilter === "all" ? "active" : ""} type="button" onClick={() => selectSenderFilter("all")}>All</button>
+            <button className={senderFilter === "me" ? "active" : ""} type="button" onClick={() => selectSenderFilter("me")}>You</button>
+            <button className={senderFilter === "them" ? "active" : ""} type="button" onClick={() => selectSenderFilter("them")}>{otherName.split(" ")[0]}</button>
             <select value={mediaFilter} onChange={(event) => setMediaFilter(event.target.value as MediaFilter)} aria-label="Filter media">
               <option value="all">All types</option>
               <option value="photos">Photos</option>

@@ -45,6 +45,8 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.doesNotMatch(page, /showDirectoryPicker|queryPermission|requestPermission/);
   assert.match(page, /result\.json/);
   assert.match(page, /Archive source controls/);
+  assert.match(page, /selectSenderFilter/);
+  assert.match(page, /scrollMessagesToLatest/);
   assert.match(page, /View Media/);
   assert.match(page, /Shared media/);
   assert.match(page, /No media connected/);
