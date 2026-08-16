@@ -1371,7 +1371,10 @@ export default function Home() {
               >
                 ☰
               </button>
-              <div className="avatar">{conversationInitials}</div>
+              <div className="header-avatar-edit">
+                <div className="avatar">{conversationInitials}</div>
+                {!renamingConversation && <button className="header-avatar-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from header avatar" title="Rename chat">✎</button>}
+              </div>
               <span>
                 {renamingConversation ? (
                   <form className="conversation-name-editor" onSubmit={(event) => {
@@ -1399,7 +1402,6 @@ export default function Home() {
                 )}
                 <span className="chat-title-meta">
                   <small>{chat.messages.length.toLocaleString()} archived messages</small>
-                  {!renamingConversation && <button className="rename-chat-button" type="button" onClick={startConversationRename} aria-label="Rename chat" title="Rename chat">✎</button>}
                 </span>
               </span>
             </div>
