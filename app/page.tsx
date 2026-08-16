@@ -770,6 +770,7 @@ export default function Home() {
   const viewerUrlRef = useRef<string | null>(null);
   const viewerPosterUrlRef = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
+  const desktopSidebarOpenRef = useRef(true);
 
   const scrollMessagesToLatest = useCallback(() => {
     const pinToLatest = () => {
@@ -805,12 +806,12 @@ export default function Home() {
 
   useEffect(() => {
     const narrowViewport = window.matchMedia("(max-width: 880px)");
-    const closeForNarrowViewport = () => {
-      if (narrowViewport.matches) setSidebarOpen(false);
+    const syncSidebarToViewport = () => {
+      setSidebarOpen(narrowViewport.matches ? false : desktopSidebarOpenRef.current);
     };
-    closeForNarrowViewport();
-    narrowViewport.addEventListener("change", closeForNarrowViewport);
-    return () => narrowViewport.removeEventListener("change", closeForNarrowViewport);
+    syncSidebarToViewport();
+    narrowViewport.addEventListener("change", syncSidebarToViewport);
+    return () => narrowViewport.removeEventListener("change", syncSidebarToViewport);
   }, []);
 
   useEffect(() => {
@@ -1102,6 +1103,15 @@ export default function Home() {
     if (window.matchMedia("(max-width: 880px)").matches) setSidebarOpen(false);
   }
 
+  function toggleSidebar() {
+    const narrowViewport = window.matchMedia("(max-width: 880px)").matches;
+    setSidebarOpen((open) => {
+      const nextOpen = !open;
+      if (!narrowViewport) desktopSidebarOpenRef.current = nextOpen;
+      return nextOpen;
+    });
+  }
+
   function cancelConversationRename() {
     setConversationNameDraft(conversationName);
     setRenamingConversation(false);
@@ -1365,7 +1375,7 @@ export default function Home() {
               <button
                 className="sidebar-toggle"
                 type="button"
-                onClick={() => setSidebarOpen((open) => !open)}
+                onClick={toggleSidebar}
                 aria-label={sidebarOpen ? "Hide archive panel" : "Show archive panel"}
                 aria-controls="archive-sidebar"
                 aria-expanded={sidebarOpen}
