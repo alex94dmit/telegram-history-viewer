@@ -51,9 +51,10 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /Hide archive panel/);
   assert.match(page, /Show archive panel/);
   assert.match(page, /desktopSidebarOpenRef/);
-  assert.match(page, /syncSidebarToViewport/);
-  assert.match(page, /narrowViewport\.matches \? false : desktopSidebarOpenRef\.current/);
+  assert.match(page, /sidebarAutoHiddenRef/);
+  assert.match(page, /restoreAfterInitialNarrowLayout/);
   assert.match(page, /function toggleSidebar/);
+  assert.match(page, /function closeSidebarManually/);
   assert.match(page, /className="theme-toggle"/);
   assert.match(page, /Use.*theme/);
   assert.match(page, /selectSenderFilter/);

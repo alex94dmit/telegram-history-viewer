@@ -771,6 +771,7 @@ export default function Home() {
   const viewerPosterUrlRef = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const desktopSidebarOpenRef = useRef(true);
+  const sidebarAutoHiddenRef = useRef(false);
 
   const scrollMessagesToLatest = useCallback(() => {
     const pinToLatest = () => {
@@ -806,18 +807,24 @@ export default function Home() {
 
   useEffect(() => {
     const narrowViewport = window.matchMedia("(max-width: 880px)");
-    const syncSidebarToViewport = () => {
-      setSidebarOpen(narrowViewport.matches ? false : desktopSidebarOpenRef.current);
+    if (narrowViewport.matches) {
+      sidebarAutoHiddenRef.current = true;
+      setSidebarOpen(false);
+    }
+    const restoreAfterInitialNarrowLayout = () => {
+      if (!narrowViewport.matches && sidebarAutoHiddenRef.current) {
+        sidebarAutoHiddenRef.current = false;
+        setSidebarOpen(desktopSidebarOpenRef.current);
+      }
     };
-    syncSidebarToViewport();
-    narrowViewport.addEventListener("change", syncSidebarToViewport);
-    return () => narrowViewport.removeEventListener("change", syncSidebarToViewport);
+    narrowViewport.addEventListener("change", restoreAfterInitialNarrowLayout);
+    return () => narrowViewport.removeEventListener("change", restoreAfterInitialNarrowLayout);
   }, []);
 
   useEffect(() => {
     if (!sidebarOpen) return;
     const closeSidebarOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape" && window.matchMedia("(max-width: 880px)").matches) setSidebarOpen(false);
+      if (event.key === "Escape" && window.matchMedia("(max-width: 880px)").matches) closeSidebarManually();
     };
     window.addEventListener("keydown", closeSidebarOnEscape);
     return () => window.removeEventListener("keydown", closeSidebarOnEscape);
@@ -1100,16 +1107,25 @@ export default function Home() {
   function startConversationRename() {
     setConversationNameDraft(conversationName);
     setRenamingConversation(true);
-    if (window.matchMedia("(max-width: 880px)").matches) setSidebarOpen(false);
+    if (window.matchMedia("(max-width: 880px)").matches) {
+      sidebarAutoHiddenRef.current = true;
+      setSidebarOpen(false);
+    }
   }
 
   function toggleSidebar() {
     const narrowViewport = window.matchMedia("(max-width: 880px)").matches;
     setSidebarOpen((open) => {
       const nextOpen = !open;
-      if (!narrowViewport) desktopSidebarOpenRef.current = nextOpen;
+      if (narrowViewport) sidebarAutoHiddenRef.current = false;
+      else desktopSidebarOpenRef.current = nextOpen;
       return nextOpen;
     });
+  }
+
+  function closeSidebarManually() {
+    if (window.matchMedia("(max-width: 880px)").matches) sidebarAutoHiddenRef.current = false;
+    setSidebarOpen(false);
   }
 
   function cancelConversationRename() {
@@ -1367,7 +1383,7 @@ export default function Home() {
           </div>
         </aside>
 
-        {sidebarOpen && <button className="sidebar-backdrop" type="button" onClick={() => setSidebarOpen(false)} aria-label="Close archive panel" />}
+        {sidebarOpen && <button className="sidebar-backdrop" type="button" onClick={closeSidebarManually} aria-label="Close archive panel" />}
 
         <section className="conversation-panel">
           <div className="conversation-toolbar">
