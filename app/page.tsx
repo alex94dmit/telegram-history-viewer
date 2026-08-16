@@ -842,12 +842,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!viewerMedia && !mediaLibraryOpen) return;
+    if (!viewerMedia && !mediaLibraryOpen && !renamingConversation) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (viewerMedia) closeMediaViewer();
-      else setMediaLibraryOpen(false);
+      else if (mediaLibraryOpen) setMediaLibraryOpen(false);
+      else cancelConversationRename();
     };
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", closeOnEscape);
@@ -855,7 +856,7 @@ export default function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [viewerMedia, mediaLibraryOpen, closeMediaViewer]);
+  }, [viewerMedia, mediaLibraryOpen, renamingConversation, closeMediaViewer]);
 
   const messagesById = useMemo(
     () => new Map(chat.messages.map((message) => [String(message.id), message])),
@@ -1373,33 +1374,10 @@ export default function Home() {
               </button>
               <div className="header-avatar-edit">
                 <div className="avatar">{conversationInitials}</div>
-                {!renamingConversation && <button className="header-avatar-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from header avatar" title="Rename chat">✎</button>}
+                <button className="header-avatar-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from header avatar" title="Rename chat">✎</button>
               </div>
               <span>
-                {renamingConversation ? (
-                  <form className="conversation-name-editor" onSubmit={(event) => {
-                    event.preventDefault();
-                    saveConversationName();
-                  }}>
-                    <input
-                      ref={conversationNameInputRef}
-                      value={conversationNameDraft}
-                      onChange={(event) => setConversationNameDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          cancelConversationRename();
-                        }
-                      }}
-                      maxLength={80}
-                      aria-label="Chat name"
-                    />
-                    <button type="submit" aria-label="Save chat name" title="Save" disabled={!conversationNameDraft.trim()}>✓</button>
-                    <button type="button" onClick={cancelConversationRename} aria-label="Cancel renaming chat" title="Cancel">×</button>
-                  </form>
-                ) : (
-                  <strong>{conversationName}</strong>
-                )}
+                <strong>{conversationName}</strong>
                 <span className="chat-title-meta">
                   <small>{chat.messages.length.toLocaleString()} archived messages</small>
                 </span>
@@ -1549,6 +1527,42 @@ export default function Home() {
           </div>
         </section>
       </section>
+
+      {renamingConversation && (
+        <div
+          className="rename-chat-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rename-chat-title"
+        >
+          <button className="rename-chat-backdrop" type="button" onClick={cancelConversationRename} aria-label="Dismiss rename dialog" tabIndex={-1} />
+          <form className="rename-chat-modal" onSubmit={(event) => {
+            event.preventDefault();
+            saveConversationName();
+          }}>
+            <header>
+              <div className="rename-chat-avatar" aria-hidden="true">{conversationInitials}</div>
+              <div><strong id="rename-chat-title">Rename chat</strong><small>Change how this conversation appears in Stillgram</small></div>
+              <button type="button" onClick={cancelConversationRename} aria-label="Close rename dialog">×</button>
+            </header>
+            <label>
+              <span>Chat name</span>
+              <input
+                ref={conversationNameInputRef}
+                value={conversationNameDraft}
+                onChange={(event) => setConversationNameDraft(event.target.value)}
+                maxLength={80}
+                aria-label="Chat name"
+              />
+            </label>
+            <p>Participant names and sender filters stay unchanged.</p>
+            <footer>
+              <button type="button" className="rename-chat-cancel" onClick={cancelConversationRename} aria-label="Cancel renaming chat">Cancel</button>
+              <button type="submit" className="rename-chat-save" aria-label="Save chat name" disabled={!conversationNameDraft.trim()}>Save</button>
+            </footer>
+          </form>
+        </div>
+      )}
 
       {mediaLibraryOpen && (
         <div

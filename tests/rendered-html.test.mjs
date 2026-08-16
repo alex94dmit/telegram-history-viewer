@@ -61,6 +61,13 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /aria-label="Chat name"/);
   assert.match(page, /aria-label="Save chat name"/);
   assert.match(page, /aria-label="Cancel renaming chat"/);
+  assert.match(page, /className="rename-chat-overlay"/);
+  assert.match(page, /className="rename-chat-modal"/);
+  assert.match(page, /aria-labelledby="rename-chat-title"/);
+  assert.match(page, /Close rename dialog/);
+  assert.match(page, /className="rename-chat-backdrop"/);
+  assert.match(page, /Dismiss rename dialog/);
+  assert.doesNotMatch(page, /className="conversation-name-editor"/);
   assert.match(page, /className="chat-list-rename"/);
   assert.match(page, /aria-label="Rename chat from chat list"/);
   assert.match(page, /className="header-avatar-rename"/);
