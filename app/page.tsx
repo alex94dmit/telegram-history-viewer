@@ -770,8 +770,6 @@ export default function Home() {
   const viewerUrlRef = useRef<string | null>(null);
   const viewerPosterUrlRef = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
-  const desktopSidebarOpenRef = useRef(true);
-  const sidebarAutoHiddenRef = useRef(false);
 
   const scrollMessagesToLatest = useCallback(() => {
     const pinToLatest = () => {
@@ -804,31 +802,6 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  useEffect(() => {
-    const narrowViewport = window.matchMedia("(max-width: 560px)");
-    if (narrowViewport.matches) {
-      sidebarAutoHiddenRef.current = true;
-      setSidebarOpen(false);
-    }
-    const restoreAfterInitialNarrowLayout = () => {
-      if (!narrowViewport.matches && sidebarAutoHiddenRef.current) {
-        sidebarAutoHiddenRef.current = false;
-        setSidebarOpen(desktopSidebarOpenRef.current);
-      }
-    };
-    narrowViewport.addEventListener("change", restoreAfterInitialNarrowLayout);
-    return () => narrowViewport.removeEventListener("change", restoreAfterInitialNarrowLayout);
-  }, []);
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    const closeSidebarOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape" && window.matchMedia("(max-width: 560px)").matches) closeSidebarManually();
-    };
-    window.addEventListener("keydown", closeSidebarOnEscape);
-    return () => window.removeEventListener("keydown", closeSidebarOnEscape);
-  }, [sidebarOpen]);
 
   useEffect(() => {
     let active = true;
@@ -1107,24 +1080,13 @@ export default function Home() {
   function startConversationRename() {
     setConversationNameDraft(conversationName);
     setRenamingConversation(true);
-    if (window.matchMedia("(max-width: 560px)").matches) {
-      sidebarAutoHiddenRef.current = true;
-      setSidebarOpen(false);
-    }
   }
 
   function toggleSidebar() {
-    const narrowViewport = window.matchMedia("(max-width: 560px)").matches;
-    setSidebarOpen((open) => {
-      const nextOpen = !open;
-      if (narrowViewport) sidebarAutoHiddenRef.current = false;
-      else desktopSidebarOpenRef.current = nextOpen;
-      return nextOpen;
-    });
+    setSidebarOpen((open) => !open);
   }
 
   function closeSidebarManually() {
-    if (window.matchMedia("(max-width: 560px)").matches) sidebarAutoHiddenRef.current = false;
     setSidebarOpen(false);
   }
 
