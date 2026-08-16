@@ -2134,6 +2134,15 @@ body {
   font-size: 64px;
 }
 
+.tgs-sticker > * {
+  grid-area: 1 / 1;
+}
+
+.tgs-sticker > span {
+  color: var(--tg-secondary);
+  font-size: 48px;
+}
+
 .telegram-gif-frame {
   width: min(420px, 65vw);
   max-height: 430px;
@@ -2150,6 +2159,28 @@ body {
   display: block;
   object-fit: contain;
   pointer-events: none;
+}
+
+.telegram-media-poster {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.round-video-frame .telegram-media-poster {
+  object-fit: cover;
+}
+
+.telegram-media-deferred {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--tg-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .file-card:is(button) {
@@ -2539,6 +2570,27 @@ body {
   align-items: center;
   gap: 9px;
   margin: 1px 0 3px;
+}
+
+.telegram-audio.is-deferred {
+  min-height: 42px;
+  border-radius: 21px;
+  background: color-mix(in srgb, var(--tg-secondary) 8%, transparent);
+}
+
+.audio-deferred {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  color: var(--tg-secondary);
+  font-size: 9px;
+}
+
+.audio-deferred small {
+  font-size: 8px;
 }
 
 .telegram-audio audio {

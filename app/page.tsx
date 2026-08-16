@@ -339,6 +339,31 @@ function mediaKind(message: TelegramMessage): MediaFilter | null {
   return null;
 }
 
+const DEFAULT_MESSAGE_LIMIT = 240;
+const MEDIA_MESSAGE_LIMIT = 60;
+
+function useNearViewport<T extends Element>(rootMargin = "500px 0px") {
+  const elementRef = useRef<T>(null);
+  const [nearViewport, setNearViewport] = useState(false);
+
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNearViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setNearViewport((current) => entry.isIntersecting === current ? current : entry.isIntersecting),
+      { root: element.closest(".message-list"), rootMargin },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [rootMargin]);
+
+  return [elementRef, nearViewport] as const;
+}
+
 function formatDuration(seconds?: number) {
   if (!seconds) return "";
   const minutes = Math.floor(seconds / 60);
@@ -354,12 +379,19 @@ function formatFileSize(bytes?: number) {
 }
 
 function TelegramAudio({ src, duration }: { src: string; duration?: number }) {
+  const [containerRef, nearViewport] = useNearViewport<HTMLDivElement>();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const currentTimeRef = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [knownDuration, setKnownDuration] = useState(duration ?? 0);
   const bars = [7, 12, 16, 10, 19, 13, 8, 17, 21, 12, 15, 9, 18, 14, 20, 11, 16, 8, 13, 18, 10, 15];
   const progress = knownDuration ? Math.min(100, (currentTime / knownDuration) * 100) : 0;
+  const active = nearViewport || playing;
+
+  useEffect(() => {
+    if (active && audioRef.current && currentTimeRef.current) audioRef.current.currentTime = currentTimeRef.current;
+  }, [active]);
 
   async function toggle() {
     const audio = audioRef.current;
@@ -374,44 +406,56 @@ function TelegramAudio({ src, duration }: { src: string; duration?: number }) {
   }
 
   return (
-    <div className="telegram-audio">
-      <audio
-        ref={audioRef}
-        src={src}
-        preload="metadata"
-        onLoadedMetadata={(event) => setKnownDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : duration ?? 0)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onEnded={() => setPlaying(false)}
-      />
-      <button type="button" onClick={() => void toggle()} aria-label={playing ? "Pause voice message" : "Play voice message"}>{playing ? "Ⅱ" : "▶"}</button>
-      <div className="audio-track">
-        <input
-          type="range"
-          min="0"
-          max={knownDuration || 1}
-          step="0.1"
-          value={currentTime}
-          onChange={(event) => {
-            const value = Number(event.target.value);
-            setCurrentTime(value);
-            if (audioRef.current) audioRef.current.currentTime = value;
-          }}
-          aria-label="Voice message position"
-        />
-        <div className="waveform" aria-hidden="true">
-          <div className="waveform-base">{bars.map((height, index) => <i key={index} style={{ height }} />)}</div>
-          <div className="waveform-progress" style={{ width: `${progress}%` }}>{bars.map((height, index) => <i key={index} style={{ height }} />)}</div>
-        </div>
-        <small>{formatDuration(Math.round(currentTime || knownDuration))}</small>
-      </div>
+    <div ref={containerRef} className={`telegram-audio${active ? "" : " is-deferred"}`}>
+      {active ? (
+        <>
+          <audio
+            ref={audioRef}
+            src={src}
+            preload="metadata"
+            onLoadedMetadata={(event) => setKnownDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : duration ?? 0)}
+            onTimeUpdate={(event) => {
+              currentTimeRef.current = event.currentTarget.currentTime;
+              setCurrentTime(event.currentTarget.currentTime);
+            }}
+            onEnded={() => setPlaying(false)}
+          />
+          <button type="button" onClick={() => void toggle()} aria-label={playing ? "Pause voice message" : "Play voice message"}>{playing ? "Ⅱ" : "▶"}</button>
+          <div className="audio-track">
+            <input
+              type="range"
+              min="0"
+              max={knownDuration || 1}
+              step="0.1"
+              value={currentTime}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                currentTimeRef.current = value;
+                setCurrentTime(value);
+                if (audioRef.current) audioRef.current.currentTime = value;
+              }}
+              aria-label="Voice message position"
+            />
+            <div className="waveform" aria-hidden="true">
+              <div className="waveform-base">{bars.map((height, index) => <i key={index} style={{ height }} />)}</div>
+              <div className="waveform-progress" style={{ width: `${progress}%` }}>{bars.map((height, index) => <i key={index} style={{ height }} />)}</div>
+            </div>
+            <small>{formatDuration(Math.round(currentTime || knownDuration))}</small>
+          </div>
+        </>
+      ) : (
+        <div className="audio-deferred" aria-hidden="true"><span>Voice message</span><small>{formatDuration(duration)}</small></div>
+      )}
     </div>
   );
 }
 
-function TelegramGif({ src, poster, label, mimeType }: { src: string; poster?: string; label: string; mimeType: string }) {
+function TelegramGif({ src, poster, label, mimeType, width, height }: { src: string; poster?: string; label: string; mimeType: string; width?: number; height?: number }) {
+  const [frameRef, nearViewport] = useNearViewport<HTMLDivElement>();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
+    if (!nearViewport) return;
     const video = videoRef.current;
     if (!video) return;
     const ensurePlayback = () => {
@@ -425,23 +469,64 @@ function TelegramGif({ src, poster, label, mimeType }: { src: string; poster?: s
       video.removeEventListener("canplay", ensurePlayback);
       video.removeEventListener("pause", ensurePlayback);
       document.removeEventListener("visibilitychange", ensurePlayback);
+      video.pause();
     };
-  }, [src]);
+  }, [src, nearViewport]);
 
   return (
-    <div className="telegram-gif-frame" role="img" aria-label={label}>
-      <video ref={videoRef} className="telegram-gif-media" autoPlay loop muted playsInline preload="auto" poster={poster} aria-hidden="true">
-        <source src={src} type={mimeType} />
-      </video>
+    <div ref={frameRef} className="telegram-gif-frame" role="img" aria-label={label} style={{ aspectRatio: width && height ? `${width} / ${height}` : "16 / 9" }}>
+      {nearViewport ? (
+        <video ref={videoRef} className="telegram-gif-media" autoPlay loop muted playsInline preload="auto" poster={poster} aria-hidden="true">
+          <source src={src} type={mimeType} />
+        </video>
+      ) : poster ? (
+        <img className="telegram-media-poster" src={poster} alt="" loading="lazy" decoding="async" />
+      ) : (
+        <span className="telegram-media-deferred" aria-hidden="true">GIF</span>
+      )}
+    </div>
+  );
+}
+
+function TelegramVideo({ src, poster, label, mimeType, width, height, round, onOpen }: {
+  src: string;
+  poster?: string;
+  label: string;
+  mimeType: string;
+  width?: number;
+  height?: number;
+  round?: boolean;
+  onOpen: () => void;
+}) {
+  const [frameRef, nearViewport] = useNearViewport<HTMLDivElement>();
+  return (
+    <div ref={frameRef} className={`telegram-video-frame${round ? " round-video-frame" : ""}`} style={{ aspectRatio: round ? "1" : width && height ? `${width} / ${height}` : "16 / 9" }}>
+      {nearViewport ? (
+        <video className={`media-video${round ? " round-video" : ""}`} controls controlsList="nofullscreen noremoteplayback" disablePictureInPicture playsInline preload="metadata" poster={poster} width={width} height={height}>
+          <source src={src} type={mimeType} />
+        </video>
+      ) : poster ? (
+        <img className={`telegram-media-poster${round ? " round-video" : ""}`} src={poster} alt="" loading="lazy" decoding="async" />
+      ) : (
+        <span className="telegram-media-deferred" aria-hidden="true">VIDEO</span>
+      )}
+      {nearViewport && (
+        <button className="video-open-viewer" type="button" aria-label={`Open ${label} in media viewer`} onClick={(event) => {
+          event.currentTarget.parentElement?.querySelector("video")?.pause();
+          onOpen();
+        }}>⛶</button>
+      )}
     </div>
   );
 }
 
 function TelegramTgsSticker({ src, emoji }: { src: string; emoji?: string }) {
+  const [visibilityRef, nearViewport] = useNearViewport<HTMLDivElement>();
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (!nearViewport) return;
     let disposed = false;
     let animation: { destroy: () => void } | undefined;
 
@@ -470,12 +555,12 @@ function TelegramTgsSticker({ src, emoji }: { src: string; emoji?: string }) {
       disposed = true;
       animation?.destroy();
     };
-  }, [src]);
+  }, [src, nearViewport]);
 
   return (
-    <div className={`tgs-sticker${failed ? " failed" : ""}`} aria-label="Animated Telegram sticker">
+    <div ref={visibilityRef} className={`tgs-sticker${failed ? " failed" : ""}`} aria-label="Animated Telegram sticker">
       <div ref={containerRef} />
-      {failed && <span>{emoji || "✦"}</span>}
+      {(failed || !nearViewport) && <span>{emoji || "✦"}</span>}
     </div>
   );
 }
@@ -554,7 +639,7 @@ function TelegramLinkPreview({ url }: { url: string }) {
         setNearViewport(true);
         observer.disconnect();
       },
-      { root: card.closest(".message-list"), rootMargin: "700px 0px" },
+      { root: card.closest(".message-list"), rootMargin: "350px 0px" },
     );
     observer.observe(card);
     return () => observer.disconnect();
@@ -662,7 +747,7 @@ export default function Home() {
   const [senderFilter, setSenderFilter] = useState<SenderFilter>("all");
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [monthFilter, setMonthFilter] = useState("all");
-  const [visibleLimit, setVisibleLimit] = useState(240);
+  const [visibleLimit, setVisibleLimit] = useState(DEFAULT_MESSAGE_LIMIT);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dragging, setDragging] = useState(false);
@@ -813,6 +898,7 @@ export default function Home() {
 
   const visibleMessages = filteredMessages.slice(-visibleLimit);
   const hiddenCount = Math.max(0, filteredMessages.length - visibleMessages.length);
+  const messageLoadIncrement = mediaFilter === "all" ? 300 : MEDIA_MESSAGE_LIMIT;
   const latestMessage = chat.messages.at(-1);
   const latestPreview = latestMessage ? (messageText(latestMessage) || (mediaKind(latestMessage) ? "Attachment" : serviceMessageText(latestMessage))) : "No messages";
 
@@ -931,7 +1017,7 @@ export default function Home() {
       setMediaLibraryFilter("all");
       setMediaLibraryLimit(120);
       setMonthFilter("all");
-      setVisibleLimit(240);
+      setVisibleLimit(DEFAULT_MESSAGE_LIMIT);
       scrollMessagesToLatest();
       return true;
     } catch (loadError) {
@@ -985,13 +1071,19 @@ export default function Home() {
     setSenderFilter("all");
     setMediaFilter("all");
     setMonthFilter("all");
-    setVisibleLimit(240);
+    setVisibleLimit(DEFAULT_MESSAGE_LIMIT);
     scrollMessagesToLatest();
   }
 
   function selectSenderFilter(filter: SenderFilter) {
-    setVisibleLimit(240);
+    setVisibleLimit(mediaFilter === "all" ? DEFAULT_MESSAGE_LIMIT : MEDIA_MESSAGE_LIMIT);
     setSenderFilter(filter);
+    scrollMessagesToLatest();
+  }
+
+  function selectMediaFilter(filter: MediaFilter) {
+    setVisibleLimit(filter === "all" ? DEFAULT_MESSAGE_LIMIT : MEDIA_MESSAGE_LIMIT);
+    setMediaFilter(filter);
     scrollMessagesToLatest();
   }
 
@@ -1026,7 +1118,7 @@ export default function Home() {
       if (url) {
         return (
           <a className="sticker-media" href={url} target="_blank" rel="noreferrer" aria-label="Open sticker">
-            <img src={url} alt={message.sticker_emoji ? `Sticker ${message.sticker_emoji}` : "Telegram sticker"} />
+            <img src={url} alt={message.sticker_emoji ? `Sticker ${message.sticker_emoji}` : "Telegram sticker"} loading="lazy" decoding="async" />
           </a>
         );
       }
@@ -1037,7 +1129,7 @@ export default function Home() {
       return wrapSpoiler(
         <button className="media-photo" type="button" onClick={() => openMediaViewer(path, label, alt, "photo")} aria-label={`View ${label}`}>
           {/* Browser-created object URLs never leave this device. */}
-          <img src={url} alt={alt} />
+          <img src={url} alt={alt} loading="lazy" decoding="async" />
         </button>,
       );
     }
@@ -1045,37 +1137,28 @@ export default function Home() {
       const poster = resolveMedia(message.thumbnail);
       if (message.media_type === "animation") {
         return wrapSpoiler(
-          <TelegramGif src={url} poster={poster} label={messageText(message) || `Animated image ${label}`} mimeType={message.mime_type || "video/mp4"} />,
+          <TelegramGif
+            src={url}
+            poster={poster}
+            label={messageText(message) || `Animated image ${label}`}
+            mimeType={message.mime_type || "video/mp4"}
+            width={message.width}
+            height={message.height}
+          />,
         );
       }
       const round = message.media_type === "video_message";
       return wrapSpoiler(
-        <div className={`telegram-video-frame${round ? " round-video-frame" : ""}`}>
-          <video
-            className={`media-video${round ? " round-video" : ""}`}
-            controls
-            controlsList="nofullscreen noremoteplayback"
-            disablePictureInPicture
-            playsInline
-            preload="metadata"
-            poster={poster}
-            width={message.width}
-            height={message.height}
-          >
-            <source src={url} type={message.mime_type || "video/mp4"} />
-          </video>
-          <button
-            className="video-open-viewer"
-            type="button"
-            aria-label={`Open ${label} in media viewer`}
-            onClick={(event) => {
-              event.currentTarget.parentElement?.querySelector("video")?.pause();
-              openMediaViewer(path, label, messageText(message) || label, "video", message.mime_type || "video/mp4", message.thumbnail);
-            }}
-          >
-            ⛶
-          </button>
-        </div>,
+        <TelegramVideo
+          src={url}
+          poster={poster}
+          label={label}
+          mimeType={message.mime_type || "video/mp4"}
+          width={message.width}
+          height={message.height}
+          round={round}
+          onOpen={() => openMediaViewer(path, label, messageText(message) || label, "video", message.mime_type || "video/mp4", message.thumbnail)}
+        />,
       );
     }
     if (kind === "voice" && url) {
@@ -1206,7 +1289,7 @@ export default function Home() {
               ["files", "□", "Files", stats.files],
               ["links", "↗", "Links", stats.links],
             ] as const).map(([value, icon, label, count]) => (
-              <button key={value} className={mediaFilter === value ? "active" : ""} onClick={() => setMediaFilter(mediaFilter === value ? "all" : value)} type="button">
+              <button key={value} className={mediaFilter === value ? "active" : ""} onClick={() => selectMediaFilter(mediaFilter === value ? "all" : value)} type="button">
                 <span>{icon}</span> {label} <b>{count}</b>
               </button>
             ))}
@@ -1285,7 +1368,7 @@ export default function Home() {
             <button className={senderFilter === "all" ? "active" : ""} type="button" onClick={() => selectSenderFilter("all")}>All</button>
             <button className={senderFilter === "me" ? "active" : ""} type="button" onClick={() => selectSenderFilter("me")}>You</button>
             <button className={senderFilter === "them" ? "active" : ""} type="button" onClick={() => selectSenderFilter("them")}>{otherName.split(" ")[0]}</button>
-            <select value={mediaFilter} onChange={(event) => setMediaFilter(event.target.value as MediaFilter)} aria-label="Filter media">
+            <select value={mediaFilter} onChange={(event) => selectMediaFilter(event.target.value as MediaFilter)} aria-label="Filter media">
               <option value="all">All types</option>
               <option value="photos">Photos</option>
               <option value="videos">Videos</option>
@@ -1297,8 +1380,8 @@ export default function Home() {
 
           <div className="message-list" ref={messageListRef}>
             {hiddenCount > 0 && (
-              <button className="load-older" type="button" onClick={() => setVisibleLimit((limit) => limit + 300)}>
-                Show {Math.min(300, hiddenCount).toLocaleString()} earlier messages
+              <button className="load-older" type="button" onClick={() => setVisibleLimit((limit) => limit + messageLoadIncrement)}>
+                Show {Math.min(messageLoadIncrement, hiddenCount).toLocaleString()} earlier messages
               </button>
             )}
 
