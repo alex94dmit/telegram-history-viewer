@@ -2235,8 +2235,8 @@ body {
 .media-library-grid {
   min-height: 0;
   flex: 1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   align-content: start;
   gap: 3px;
   overflow-y: auto;
@@ -2246,6 +2246,8 @@ body {
 
 .media-library-item {
   position: relative;
+  width: calc((100% - 6px) / 3);
+  flex: 0 0 calc((100% - 6px) / 3);
   min-width: 0;
   aspect-ratio: 1;
   overflow: hidden;
@@ -2325,7 +2327,8 @@ body {
 }
 
 .media-library-more {
-  grid-column: 1 / -1;
+  width: 100%;
+  flex: 0 0 100%;
   min-height: 44px;
   border: 0;
   background: var(--paper);
@@ -2336,7 +2339,8 @@ body {
 }
 
 .media-library-empty {
-  grid-column: 1 / -1;
+  width: 100%;
+  flex: 0 0 100%;
   min-height: 240px;
   display: grid;
   place-items: center;
