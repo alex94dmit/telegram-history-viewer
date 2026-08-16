@@ -188,12 +188,12 @@ const dayFormatter = new Intl.DateTimeFormat(undefined, {
   year: "numeric",
 });
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
-const shortDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
 const mediaDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const ARCHIVE_CACHE_DATABASE = "stillgram-local-archive-files";
 const ARCHIVE_FILES_STORE = "files";
 const ARCHIVE_META_STORE = "metadata";
 const ARCHIVE_CACHE_KEY = "current-archive";
+const CHAT_REMOVED_STORAGE_KEY = "stillgram:chat-removed";
 
 function messageText(message: TelegramMessage): string {
   const source = message.text_entities ?? message.text ?? "";
@@ -272,6 +272,21 @@ async function cacheArchive(entries: ArchiveFileEntry[], label: string) {
     return true;
   } catch {
     // The archive still opens when browser storage is unavailable or full.
+    return false;
+  }
+}
+
+async function clearCachedArchive() {
+  if (typeof indexedDB === "undefined") return false;
+  try {
+    const database = await openArchiveCache();
+    const transaction = database.transaction([ARCHIVE_FILES_STORE, ARCHIVE_META_STORE], "readwrite");
+    transaction.objectStore(ARCHIVE_FILES_STORE).clear();
+    transaction.objectStore(ARCHIVE_META_STORE).delete(ARCHIVE_CACHE_KEY);
+    await waitForTransaction(transaction);
+    database.close();
+    return true;
+  } catch {
     return false;
   }
 }
@@ -741,6 +756,7 @@ function extractChat(data: RawExport): TelegramChat {
 
 export default function Home() {
   const [chat, setChat] = useState<TelegramChat>(demoChat);
+  const [hasConversation, setHasConversation] = useState(true);
   const [isDemo, setIsDemo] = useState(true);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -807,12 +823,28 @@ export default function Home() {
     let active = true;
     void (async () => {
       try {
+        let chatWasRemoved = false;
+        try {
+          chatWasRemoved = window.localStorage.getItem(CHAT_REMOVED_STORAGE_KEY) === "true";
+        } catch {
+          // The deletion still applies for this session when browser storage is unavailable.
+        }
+        if (chatWasRemoved) {
+          if (active) {
+            setHasConversation(false);
+            setCacheStatus("idle");
+          }
+          return;
+        }
         const cached = await readCachedArchive();
         if (!cached || !active) {
           if (active) setCacheStatus(typeof indexedDB === "undefined" ? "unavailable" : "idle");
           return;
         }
-        if (await loadFiles(cached.entries, cached.label)) setCacheStatus("saved");
+        if (await loadFiles(cached.entries, cached.label)) {
+          setHasConversation(true);
+          setCacheStatus("saved");
+        }
       } catch {
         if (active) setCacheStatus("unavailable");
       } finally {
@@ -910,8 +942,6 @@ export default function Home() {
   const visibleMessages = filteredMessages.slice(-visibleLimit);
   const hiddenCount = Math.max(0, filteredMessages.length - visibleMessages.length);
   const messageLoadIncrement = mediaFilter === "all" ? 300 : MEDIA_MESSAGE_LIMIT;
-  const latestMessage = chat.messages.at(-1);
-  const latestPreview = latestMessage ? (messageText(latestMessage) || (mediaKind(latestMessage) ? "Attachment" : serviceMessageText(latestMessage))) : "No messages";
 
   const stats = useMemo(() => {
     const media = { photos: 0, videos: 0, voice: 0, files: 0, links: 0 };
@@ -1019,6 +1049,7 @@ export default function Home() {
       mediaFilesRef.current = media;
       setMediaFileCount(Math.max(0, entries.length - 1));
       setChat({ ...nextChat, messages: nextChat.messages.slice().sort((a, b) => safeDate(a).getTime() - safeDate(b).getTime()) });
+      setHasConversation(true);
       setIsDemo(false);
       setSourceLabel(preferredLabel || jsonEntry.relativePath.split("/")[0] || jsonFile.name);
       setQuery("");
@@ -1029,6 +1060,11 @@ export default function Home() {
       setMediaLibraryLimit(120);
       setMonthFilter("all");
       setVisibleLimit(DEFAULT_MESSAGE_LIMIT);
+      try {
+        window.localStorage.removeItem(CHAT_REMOVED_STORAGE_KEY);
+      } catch {
+        // Opening the archive still works when browser storage is unavailable.
+      }
       scrollMessagesToLatest();
       return true;
     } catch (loadError) {
@@ -1088,6 +1124,36 @@ export default function Home() {
 
   function closeSidebarManually() {
     setSidebarOpen(false);
+  }
+
+  async function removeCurrentChat() {
+    closeMediaViewer();
+    resetObjectUrls();
+    mediaFilesRef.current.clear();
+    viewerPosterUrlRef.current = null;
+    setHasConversation(false);
+    setChat(demoChat);
+    setIsDemo(true);
+    setSourceLabel("Sample archive");
+    setRestoringArchive(false);
+    setCacheStatus("idle");
+    setMediaFileCount(0);
+    setMediaLibraryOpen(false);
+    setRenamingConversation(false);
+    setConversationNameOverride(null);
+    setQuery("");
+    setSenderFilter("all");
+    setMediaFilter("all");
+    setMonthFilter("all");
+    setVisibleLimit(DEFAULT_MESSAGE_LIMIT);
+    setError("");
+    try {
+      window.localStorage.setItem(CHAT_REMOVED_STORAGE_KEY, "true");
+      window.localStorage.removeItem(conversationNameStorageKey);
+    } catch {
+      // The chat remains removed for this session when browser storage is unavailable.
+    }
+    await clearCachedArchive();
   }
 
   function cancelConversationRename() {
@@ -1298,46 +1364,54 @@ export default function Home() {
           </div>
 
           <div className="chat-list-label">Chats</div>
-          <div className="chat-list-row selected">
-            <button className="chat-list-open" type="button" onClick={clearFilters} aria-label={`Open ${conversationName} chat`}>
-              <div className="avatar large">{conversationInitials}</div>
-              <div className="chat-list-copy">
-                <span><strong>{conversationName}</strong><time>{latestMessage ? shortDateFormatter.format(safeDate(latestMessage)) : ""}</time></span>
-                <p>{latestPreview}</p>
+          {hasConversation ? (
+            <>
+              <div className="chat-list-row selected">
+                <button className="chat-list-open" type="button" onClick={clearFilters} aria-label={`Open ${conversationName} chat`}>
+                  <div className="avatar large">{conversationInitials}</div>
+                  <div className="chat-list-copy"><strong>{conversationName}</strong></div>
+                </button>
+                <button className="chat-list-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from chat list" title="Rename chat">✎</button>
+                <button className="chat-list-delete" type="button" onClick={() => void removeCurrentChat()} aria-label="Delete current chat" title="Remove chat from Stillgram">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-1 11H8L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z" />
+                  </svg>
+                </button>
               </div>
-            </button>
-            <button className="chat-list-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from chat list" title="Rename chat">✎</button>
-          </div>
 
-          <div className="archive-source">
-            <span className="source-icon">✓</span>
-            <div>
-              <strong>{sourceLabel}</strong>
-              <small>{isDemo ? "Sample conversation" : "On-device only · loaded locally"}</small>
-            </div>
-          </div>
+              <div className="archive-source">
+                <span className="source-icon">✓</span>
+                <div>
+                  <strong>{sourceLabel}</strong>
+                  <small>{isDemo ? "Sample conversation" : "On-device only · loaded locally"}</small>
+                </div>
+              </div>
 
-          <nav className="filter-section" aria-label="Message filters">
-            <span className="section-label">Message filters</span>
-            <button className={senderFilter === "all" ? "active" : ""} onClick={() => selectSenderFilter("all")} type="button"><span>☷</span> All messages <b>{chat.messages.length.toLocaleString()}</b></button>
-            <button className={senderFilter === "me" ? "active" : ""} onClick={() => selectSenderFilter("me")} type="button"><span>↗</span> Sent by you</button>
-            <button className={senderFilter === "them" ? "active" : ""} onClick={() => selectSenderFilter("them")} type="button"><span>↙</span> Sent by {otherName.split(" ")[0]}</button>
-          </nav>
+              <nav className="filter-section" aria-label="Message filters">
+                <span className="section-label">Message filters</span>
+                <button className={senderFilter === "all" ? "active" : ""} onClick={() => selectSenderFilter("all")} type="button"><span>☷</span> All messages <b>{chat.messages.length.toLocaleString()}</b></button>
+                <button className={senderFilter === "me" ? "active" : ""} onClick={() => selectSenderFilter("me")} type="button"><span>↗</span> Sent by you</button>
+                <button className={senderFilter === "them" ? "active" : ""} onClick={() => selectSenderFilter("them")} type="button"><span>↙</span> Sent by {otherName.split(" ")[0]}</button>
+              </nav>
 
-          <div className="filter-section media-filters">
-            <span className="section-label">Media & links</span>
-            {([
-              ["photos", "▧", "Photos", stats.photos],
-              ["videos", "▷", "Videos", stats.videos],
-              ["voice", "≋", "Audio", stats.voice],
-              ["files", "□", "Files", stats.files],
-              ["links", "↗", "Links", stats.links],
-            ] as const).map(([value, icon, label, count]) => (
-              <button key={value} className={mediaFilter === value ? "active" : ""} onClick={() => selectMediaFilter(mediaFilter === value ? "all" : value)} type="button">
-                <span>{icon}</span> {label} <b>{count}</b>
-              </button>
-            ))}
-          </div>
+              <div className="filter-section media-filters">
+                <span className="section-label">Media & links</span>
+                {([
+                  ["photos", "▧", "Photos", stats.photos],
+                  ["videos", "▷", "Videos", stats.videos],
+                  ["voice", "≋", "Audio", stats.voice],
+                  ["files", "□", "Files", stats.files],
+                  ["links", "↗", "Links", stats.links],
+                ] as const).map(([value, icon, label, count]) => (
+                  <button key={value} className={mediaFilter === value ? "active" : ""} onClick={() => selectMediaFilter(mediaFilter === value ? "all" : value)} type="button">
+                    <span>{icon}</span> {label} <b>{count}</b>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="chat-list-empty"><strong>No chats</strong><small>Use + to open an export folder.</small></div>
+          )}
 
           <div className="sidebar-foot">
             <span className="privacy-dot">●</span>
@@ -1348,7 +1422,7 @@ export default function Home() {
         {sidebarOpen && <button className="sidebar-backdrop" type="button" onClick={closeSidebarManually} aria-label="Close archive panel" />}
 
         <section className="conversation-panel">
-          <div className="conversation-toolbar">
+          <div className={`conversation-toolbar${hasConversation ? "" : " is-empty"}`}>
             <div className="chat-header-title">
               <button
                 className="sidebar-toggle"
@@ -1360,43 +1434,53 @@ export default function Home() {
               >
                 ☰
               </button>
-              <div className="header-avatar-edit">
-                <div className="avatar">{conversationInitials}</div>
-                <button className="header-avatar-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from header avatar" title="Rename chat">✎</button>
-              </div>
-              <span>
-                <strong>{conversationName}</strong>
-                <span className="chat-title-meta">
-                  <small>{chat.messages.length.toLocaleString()} archived messages</small>
-                </span>
-              </span>
+              {hasConversation && (
+                <>
+                  <div className="header-avatar-edit">
+                    <div className="avatar">{conversationInitials}</div>
+                    <button className="header-avatar-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from header avatar" title="Rename chat">✎</button>
+                  </div>
+                  <span>
+                    <strong>{conversationName}</strong>
+                    <span className="chat-title-meta">
+                      <small>{chat.messages.length.toLocaleString()} archived messages</small>
+                    </span>
+                  </span>
+                </>
+              )}
             </div>
-            <button
-              className="view-media-button"
-              type="button"
-              onClick={() => {
-                setMediaLibraryOpen(true);
-                setMediaLibraryLimit(120);
-              }}
-            >
-              <span aria-hidden="true">▦</span> View Media
-            </button>
-            <label className="search-box">
-              <span aria-hidden="true">⌕</span>
-              <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={searchKeyboard} placeholder="Search this conversation" aria-label="Search this conversation" />
-              {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search">×</button>}
-            </label>
-            <select value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)} aria-label="Filter by month">
-              <option value="all">Any date</option>
-              {months.map(([key, date]) => <option key={key} value={key}>{monthFormatter.format(date)}</option>)}
-            </select>
+            {hasConversation && (
+              <>
+                <button
+                  className="view-media-button"
+                  type="button"
+                  onClick={() => {
+                    setMediaLibraryOpen(true);
+                    setMediaLibraryLimit(120);
+                  }}
+                >
+                  <span aria-hidden="true">▦</span> View Media
+                </button>
+                <label className="search-box">
+                  <span aria-hidden="true">⌕</span>
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={searchKeyboard} placeholder="Search this conversation" aria-label="Search this conversation" />
+                  {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search">×</button>}
+                </label>
+                <select value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)} aria-label="Filter by month">
+                  <option value="all">Any date</option>
+                  {months.map(([key, date]) => <option key={key} value={key}>{monthFormatter.format(date)}</option>)}
+                </select>
+              </>
+            )}
           </div>
 
-          <div className="archive-switcher" aria-label="Archive source">
-            <span><small>Archive source{cacheStatusLabel}</small><strong>{sourceLabel}</strong></span>
-          </div>
+          {hasConversation && (
+            <div className="archive-switcher" aria-label="Archive source">
+              <span><small>Archive source{cacheStatusLabel}</small><strong>{sourceLabel}</strong></span>
+            </div>
+          )}
 
-          {isDemo && (
+          {hasConversation && isDemo && (
             <div className="welcome-strip">
               <span className="welcome-lock">◇</span>
               <div>
@@ -1416,7 +1500,7 @@ export default function Home() {
 
           {error && <div className="error-banner" role="alert"><strong>Couldn’t open that export.</strong><span>{error}</span><button type="button" onClick={() => setError("")}>×</button></div>}
 
-          <div className="mobile-filter-bar" aria-label="Mobile message filters">
+          {hasConversation && <div className="mobile-filter-bar" aria-label="Mobile message filters">
             <button className={senderFilter === "all" ? "active" : ""} type="button" onClick={() => selectSenderFilter("all")}>All</button>
             <button className={senderFilter === "me" ? "active" : ""} type="button" onClick={() => selectSenderFilter("me")}>You</button>
             <button className={senderFilter === "them" ? "active" : ""} type="button" onClick={() => selectSenderFilter("them")}>{otherName.split(" ")[0]}</button>
@@ -1428,9 +1512,9 @@ export default function Home() {
               <option value="files">Files</option>
               <option value="links">Links</option>
             </select>
-          </div>
+          </div>}
 
-          <div className="message-list" ref={messageListRef}>
+          {hasConversation ? <div className="message-list" ref={messageListRef}>
             {hiddenCount > 0 && (
               <button className="load-older" type="button" onClick={() => setVisibleLimit((limit) => limit + messageLoadIncrement)}>
                 Show {Math.min(messageLoadIncrement, hiddenCount).toLocaleString()} earlier messages
@@ -1512,7 +1596,16 @@ export default function Home() {
               })
             )}
             {visibleMessages.length > 0 && <div className="end-marker"><span>End of selected messages</span></div>}
-          </div>
+          </div> : (
+            <div className="no-chat-state">
+              <div>
+                <span aria-hidden="true">＋</span>
+                <h2>No chat selected</h2>
+                <p>Open a Telegram export folder to add a conversation.</p>
+                <button type="button" onClick={() => void chooseFolder()}>Open export folder</button>
+              </div>
+            </div>
+          )}
         </section>
       </section>
 

@@ -44,6 +44,8 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /indexedDB/);
   assert.match(page, /cacheArchive/);
   assert.match(page, /readCachedArchive/);
+  assert.match(page, /clearCachedArchive/);
+  assert.match(page, /CHAT_REMOVED_STORAGE_KEY/);
   assert.match(page, /saved for refresh/);
   assert.doesNotMatch(page, /showDirectoryPicker|queryPermission|requestPermission/);
   assert.match(page, /result\.json/);
@@ -82,6 +84,11 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.doesNotMatch(page, /className="conversation-name-editor"/);
   assert.match(page, /className="chat-list-rename"/);
   assert.match(page, /aria-label="Rename chat from chat list"/);
+  assert.match(page, /className="chat-list-delete"/);
+  assert.match(page, /aria-label="Delete current chat"/);
+  assert.match(page, /function removeCurrentChat/);
+  assert.match(page, /No chat selected/);
+  assert.doesNotMatch(page, /latestMessage|latestPreview|shortDateFormatter/);
   assert.match(page, /className="header-avatar-rename"/);
   assert.match(page, /aria-label="Rename chat from header avatar"/);
   assert.doesNotMatch(page, /className="rename-chat-button"/);
