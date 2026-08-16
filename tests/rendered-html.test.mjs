@@ -42,6 +42,7 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /Archive source controls/);
   assert.match(page, /View Media/);
   assert.match(page, /Shared media/);
+  assert.match(page, /No media connected/);
   assert.match(page, /Show older media/);
   assert.match(page, /▧ Choose folder/);
   assert.match(page, /☷ Messages only/);

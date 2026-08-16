@@ -1013,7 +1013,6 @@ export default function Home() {
             <button
               className="view-media-button"
               type="button"
-              disabled={sharedMedia.length === 0}
               onClick={() => {
                 setMediaLibraryOpen(true);
                 setMediaLibraryLimit(120);
@@ -1196,7 +1195,12 @@ export default function Home() {
             <div className="media-library-grid">
               {visibleLibraryMedia.map(renderLibraryMedia)}
               {visibleLibraryMedia.length === 0 && (
-                <div className="media-library-empty"><span>▦</span><strong>No media here</strong><p>Photos and videos from this chat will appear here.</p></div>
+                <div className="media-library-empty">
+                  <span>▦</span>
+                  <strong>No media connected</strong>
+                  <p>Choose the complete Telegram export folder to browse its photos and videos.</p>
+                  <button type="button" onClick={() => folderInputRef.current?.click()}>Choose folder</button>
+                </div>
               )}
               {visibleLibraryMedia.length < libraryMedia.length && (
                 <button className="media-library-more" type="button" onClick={() => setMediaLibraryLimit((limit) => limit + 120)}>
