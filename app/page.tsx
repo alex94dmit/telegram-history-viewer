@@ -664,6 +664,7 @@ export default function Home() {
   const [monthFilter, setMonthFilter] = useState("all");
   const [visibleLimit, setVisibleLimit] = useState(240);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
   const [sourceLabel, setSourceLabel] = useState("Sample archive");
@@ -713,6 +714,25 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    const narrowViewport = window.matchMedia("(max-width: 880px)");
+    const closeForNarrowViewport = () => {
+      if (narrowViewport.matches) setSidebarOpen(false);
+    };
+    closeForNarrowViewport();
+    narrowViewport.addEventListener("change", closeForNarrowViewport);
+    return () => narrowViewport.removeEventListener("change", closeForNarrowViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const closeSidebarOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape" && window.matchMedia("(max-width: 880px)").matches) setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", closeSidebarOnEscape);
+    return () => window.removeEventListener("keydown", closeSidebarOnEscape);
+  }, [sidebarOpen]);
 
   useEffect(() => {
     let active = true;
@@ -1142,11 +1162,11 @@ export default function Home() {
       />
       <input ref={jsonInputRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={onFolderChange} />
 
-      <section className="workspace">
-        <aside className="sidebar">
+      <section className={`workspace${sidebarOpen ? "" : " sidebar-closed"}`}>
+        <aside className="sidebar" id="archive-sidebar" aria-label="Archive panel" aria-hidden={sidebarOpen ? undefined : true}>
           <div className="sidebar-toolbar">
-            <button className="telegram-menu" type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`}>
-              {theme === "light" ? "☰" : "☀"}
+            <button className="theme-toggle" type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`}>
+              {theme === "light" ? "☾" : "☀"}
             </button>
             <div className="telegram-brand"><strong>Stillgram</strong><small>local archive</small></div>
             <button className="telegram-compose" type="button" onClick={() => void chooseFolder()} aria-label="Open Telegram export">＋</button>
@@ -1197,9 +1217,21 @@ export default function Home() {
           </div>
         </aside>
 
+        {sidebarOpen && <button className="sidebar-backdrop" type="button" onClick={() => setSidebarOpen(false)} aria-label="Close archive panel" />}
+
         <section className="conversation-panel">
           <div className="conversation-toolbar">
             <div className="chat-header-title">
+              <button
+                className="sidebar-toggle"
+                type="button"
+                onClick={() => setSidebarOpen((open) => !open)}
+                aria-label={sidebarOpen ? "Hide archive panel" : "Show archive panel"}
+                aria-controls="archive-sidebar"
+                aria-expanded={sidebarOpen}
+              >
+                ☰
+              </button>
               <div className="avatar">{initials(otherName)}</div>
               <span><strong>{otherName}</strong><small>{chat.messages.length.toLocaleString()} archived messages</small></span>
             </div>

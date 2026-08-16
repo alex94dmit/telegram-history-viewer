@@ -45,6 +45,11 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.doesNotMatch(page, /showDirectoryPicker|queryPermission|requestPermission/);
   assert.match(page, /result\.json/);
   assert.match(page, /Archive source controls/);
+  assert.match(page, /aria-controls="archive-sidebar"/);
+  assert.match(page, /Hide archive panel/);
+  assert.match(page, /Show archive panel/);
+  assert.match(page, /className="theme-toggle"/);
+  assert.match(page, /Use.*theme/);
   assert.match(page, /selectSenderFilter/);
   assert.match(page, /scrollMessagesToLatest/);
   assert.match(page, /View Media/);
