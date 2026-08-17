@@ -36,5 +36,7 @@ yarn-error.log*
 
 /dist/
 /.wrangler/
+/build-resources/
+/release/
 /outputs/
 /work/
