@@ -1,16 +1,49 @@
 const MAX_HTML_BYTES = 1_500_000;
+const MAX_URL_CHARACTERS = 4_096;
+const PREVIEW_REQUEST_HEADER = "x-stillgram-link-preview";
+
+function blockedIpv4(host: string) {
+  const parts = host.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+  const [first, second] = parts;
+  return first === 0
+    || first === 10
+    || first === 127
+    || (first === 100 && second >= 64 && second <= 127)
+    || (first === 169 && second === 254)
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && (second === 0 || second === 168))
+    || (first === 198 && (second === 18 || second === 19))
+    || first >= 224;
+}
 
 function blockedHostname(hostname: string) {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host === "::1" || host.endsWith(".local")) return true;
-  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)) return true;
-  const private172 = host.match(/^172\.(\d{1,3})\./);
-  if (private172 && Number(private172[1]) >= 16 && Number(private172[1]) <= 31) return true;
-  return /^0\./.test(host) || /^169\.254\./.test(host);
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (!host || host.length > 253) return true;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return blockedIpv4(host);
+  const mappedIpv4 = host.match(/(?:^|:)ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+  if (mappedIpv4 && blockedIpv4(mappedIpv4)) return true;
+  if (host.includes(":")) {
+    return host === "::"
+      || host === "::1"
+      || host.startsWith("::ffff:")
+      || /^f[cd]/.test(host)
+      || /^fe[89ab]/.test(host)
+      || /^ff/.test(host)
+      || /^2001:db8(?::|$)/.test(host);
+  }
+  if (!host.includes(".")) return true;
+  return host === "localhost"
+    || host.endsWith(".localhost")
+    || host.endsWith(".local")
+    || host.endsWith(".internal")
+    || host.endsWith(".home.arpa");
 }
 
 function supportedTarget(url: URL) {
-  return ["http:", "https:"].includes(url.protocol) && !blockedHostname(url.hostname);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || blockedHostname(url.hostname)) return false;
+  if (!url.port) return true;
+  return (url.protocol === "http:" && url.port === "80") || (url.protocol === "https:" && url.port === "443");
 }
 
 async function fetchWithSafeRedirects(initialUrl: URL) {
@@ -66,19 +99,40 @@ function titleContent(html: string) {
   return title ? decodeEntities(title) : undefined;
 }
 
-function absoluteUrl(value: string | undefined, base: string) {
-  if (!value) return undefined;
+async function responseTextWithinLimit(response: Response) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
   try {
-    const url = new URL(value, base);
-    return ["http:", "https:"].includes(url.protocol) ? url.href : undefined;
-  } catch {
-    return undefined;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > MAX_HTML_BYTES) {
+        await reader.cancel();
+        throw new Error("Preview is too large");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
   }
+  const body = new Uint8Array(received);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  });
+  return new TextDecoder().decode(body);
 }
 
 export async function GET(request: Request) {
+  if (request.headers.get(PREVIEW_REQUEST_HEADER) !== "1") {
+    return Response.json({ error: "Preview request denied" }, { status: 403 });
+  }
   const value = new URL(request.url).searchParams.get("url");
-  if (!value) return Response.json({ error: "Missing URL" }, { status: 400 });
+  if (!value || value.length > MAX_URL_CHARACTERS) return Response.json({ error: "Invalid URL" }, { status: 400 });
 
   let target: URL;
   try {
@@ -98,22 +152,22 @@ export async function GET(request: Request) {
     const contentLength = Number(response.headers.get("content-length") ?? 0);
     if (contentLength > MAX_HTML_BYTES) return Response.json({ error: "Preview is too large" }, { status: 413 });
     if (contentType.startsWith("image/")) {
-      return Response.json({ url: response.url, image: response.url, title: target.hostname.replace(/^www\./, "") });
+      const host = target.hostname.replace(/^www\./, "");
+      return Response.json({ url: response.url, title: host, siteName: host });
     }
     if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
       return Response.json({ error: "Preview unavailable" }, { status: 415 });
     }
 
-    const html = (await response.text()).slice(0, MAX_HTML_BYTES);
+    const html = await responseTextWithinLimit(response);
     const finalUrl = response.url || target.href;
     const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
     const title = metaContent(html, ["og:title", "twitter:title"]) || titleContent(html) || finalHost;
     const description = metaContent(html, ["og:description", "twitter:description", "description"]);
     const siteName = metaContent(html, ["og:site_name"]) || finalHost;
-    const image = absoluteUrl(metaContent(html, ["og:image", "twitter:image", "twitter:image:src"]), finalUrl);
 
     return Response.json(
-      { url: finalUrl, title, description, siteName, image },
+      { url: finalUrl, title, description, siteName },
       { headers: { "Cache-Control": "private, max-age=86400" } },
     );
   } catch {

@@ -194,6 +194,7 @@ const ARCHIVE_FILES_STORE = "files";
 const ARCHIVE_META_STORE = "metadata";
 const ARCHIVE_CACHE_KEY = "current-archive";
 const CHAT_REMOVED_STORAGE_KEY = "stillgram:chat-removed";
+const LINK_PREVIEWS_STORAGE_KEY = "stillgram:allow-link-previews";
 
 function messageText(message: TelegramMessage): string {
   const source = message.text_entities ?? message.text ?? "";
@@ -339,7 +340,7 @@ function initials(name: string) {
     .join("") || "TG";
 }
 
-function mediaKind(message: TelegramMessage): MediaFilter | null {
+function mediaKind(message: TelegramMessage): Exclude<MediaFilter, "all"> | null {
   const mime = message.mime_type ?? "";
   const type = message.media_type ?? "";
   if (message.photo || mime.startsWith("image/") || type === "photo") return "photos";
@@ -625,14 +626,18 @@ const linkPreviewCache = new Map<string, Promise<LinkPreviewData | null>>();
 function fetchLinkPreview(url: string) {
   const cached = linkPreviewCache.get(url);
   if (cached) return cached;
-  const request = fetch(`/api/link-preview?url=${encodeURIComponent(url)}`)
+  const request = fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { "X-Stillgram-Link-Preview": "1" },
+  })
     .then(async (response) => response.ok ? await response.json() as LinkPreviewData : null)
     .catch(() => null);
   linkPreviewCache.set(url, request);
   return request;
 }
 
-function TelegramLinkPreview({ url }: { url: string }) {
+function TelegramLinkPreview({ url, enabled }: { url: string; enabled: boolean }) {
   const cardRef = useRef<HTMLAnchorElement>(null);
   const [preview, setPreview] = useState<LinkPreviewData | null>();
   const [nearViewport, setNearViewport] = useState(false);
@@ -646,6 +651,7 @@ function TelegramLinkPreview({ url }: { url: string }) {
   }, [url]);
 
   useEffect(() => {
+    if (!enabled) return;
     const card = cardRef.current;
     if (!card) return;
     const observer = new IntersectionObserver(
@@ -658,23 +664,23 @@ function TelegramLinkPreview({ url }: { url: string }) {
     );
     observer.observe(card);
     return () => observer.disconnect();
-  }, [url]);
+  }, [enabled, url]);
 
   useEffect(() => {
-    if (!nearViewport) return;
+    if (!enabled || !nearViewport) return;
     let active = true;
     void fetchLinkPreview(url).then((nextPreview) => {
       if (active) setPreview(nextPreview);
     });
     return () => { active = false; };
-  }, [nearViewport, url]);
+  }, [enabled, nearViewport, url]);
 
   const title = preview?.title || fallback.label;
   const description = preview?.description;
   return (
     <a
       ref={cardRef}
-      className={`link-preview-card${nearViewport && preview === undefined ? " is-loading" : ""}`}
+      className={`link-preview-card${enabled && nearViewport && preview === undefined ? " is-loading" : ""}${enabled ? "" : " preview-disabled"}`}
       href={url}
       target="_blank"
       rel="noreferrer"
@@ -682,7 +688,7 @@ function TelegramLinkPreview({ url }: { url: string }) {
     >
       <span className="link-preview-accent" aria-hidden="true" />
       <span className="link-preview-copy">
-        <small>{preview?.siteName || fallback.host}</small>
+        <small>{enabled ? preview?.siteName || fallback.host : `${fallback.host} · preview off`}</small>
         <strong>{title}</strong>
         {description && <span>{description}</span>}
       </span>
@@ -779,6 +785,9 @@ export default function Home() {
   const [conversationNameOverride, setConversationNameOverride] = useState<{ key: string; value: string } | null>(null);
   const [renamingConversation, setRenamingConversation] = useState(false);
   const [conversationNameDraft, setConversationNameDraft] = useState("");
+  const [privacySettingsOpen, setPrivacySettingsOpen] = useState(false);
+  const [linkPreviewsEnabled, setLinkPreviewsEnabled] = useState(false);
+  const [privacyStatus, setPrivacyStatus] = useState("");
   const folderInputRef = useRef<HTMLInputElement>(null);
   const conversationNameInputRef = useRef<HTMLInputElement>(null);
   const mediaFilesRef = useRef(new Map<string, File>());
@@ -820,6 +829,14 @@ export default function Home() {
   }, [theme]);
 
   useEffect(() => {
+    try {
+      setLinkPreviewsEnabled(window.localStorage.getItem(LINK_PREVIEWS_STORAGE_KEY) === "true");
+    } catch {
+      setLinkPreviewsEnabled(false);
+    }
+  }, []);
+
+  useEffect(() => {
     let active = true;
     void (async () => {
       try {
@@ -855,12 +872,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!viewerMedia && !mediaLibraryOpen && !renamingConversation) return;
+    if (!viewerMedia && !mediaLibraryOpen && !renamingConversation && !privacySettingsOpen) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (viewerMedia) closeMediaViewer();
       else if (mediaLibraryOpen) setMediaLibraryOpen(false);
+      else if (privacySettingsOpen) setPrivacySettingsOpen(false);
       else cancelConversationRename();
     };
     document.body.style.overflow = "hidden";
@@ -869,7 +887,7 @@ export default function Home() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [viewerMedia, mediaLibraryOpen, renamingConversation, closeMediaViewer]);
+  }, [viewerMedia, mediaLibraryOpen, renamingConversation, privacySettingsOpen, closeMediaViewer]);
 
   const messagesById = useMemo(
     () => new Map(chat.messages.map((message) => [String(message.id), message])),
@@ -1021,7 +1039,7 @@ export default function Home() {
 
   async function loadFiles(fileList: FileList | File[] | ArchiveFileEntry[], preferredLabel?: string): Promise<boolean> {
     setError("");
-    const entries = Array.from(fileList).map((entry) => entry instanceof File
+    const entries = Array.from(fileList as ArrayLike<File | ArchiveFileEntry>).map((entry) => entry instanceof File
       ? { file: entry, relativePath: entry.webkitRelativePath || entry.name }
       : entry);
     const jsonEntry = entries.find(({ file }) => file.name.toLocaleLowerCase() === "result.json")
@@ -1078,6 +1096,27 @@ export default function Home() {
   function chooseFolder() {
     setError("");
     folderInputRef.current?.click();
+  }
+
+  function setRichLinkPreviews(enabled: boolean) {
+    setLinkPreviewsEnabled(enabled);
+    setPrivacyStatus(enabled
+      ? "Rich previews are on. Visible links may contact their websites."
+      : "Rich previews are off. Links stay local until you open them.");
+    if (!enabled) linkPreviewCache.clear();
+    try {
+      window.localStorage.setItem(LINK_PREVIEWS_STORAGE_KEY, String(enabled));
+    } catch {
+      // The setting remains valid for this session when storage is unavailable.
+    }
+  }
+
+  async function clearSavedArchiveCache() {
+    const cleared = await clearCachedArchive();
+    setCacheStatus(cleared ? "idle" : "unavailable");
+    setPrivacyStatus(cleared
+      ? "Saved archive files were cleared. The currently open chat stays available until you close the app."
+      : "Stillgram could not clear browser storage.");
   }
 
   function onFolderChange(event: ChangeEvent<HTMLInputElement>) {
@@ -1415,7 +1454,11 @@ export default function Home() {
 
           <div className="sidebar-foot">
             <span className="privacy-dot">●</span>
-            <p><strong>Private archive</strong>Your files stay on this device.</p>
+            <p><strong>Private archive</strong>{linkPreviewsEnabled ? "Rich previews allowed" : "Network previews off"}</p>
+            <button type="button" onClick={() => {
+              setPrivacyStatus("");
+              setPrivacySettingsOpen(true);
+            }} aria-label="Open privacy settings">Manage</button>
           </div>
         </aside>
 
@@ -1571,7 +1614,7 @@ export default function Home() {
                               <a className="location-card" href={`https://www.openstreetmap.org/?mlat=${message.location_information.latitude}&mlon=${message.location_information.longitude}`} target="_blank" rel="noreferrer">⌖ <span><strong>Shared location</strong><small>Open in map</small></span></a>
                             )}
                             {messageText(message) && <p className="message-copy">{renderRichText(message, deferredQuery)}</p>}
-                            {previewUrl && <TelegramLinkPreview url={previewUrl} />}
+                            {previewUrl && <TelegramLinkPreview url={previewUrl} enabled={linkPreviewsEnabled} />}
                             {message.inline_bot_buttons?.length ? (
                               <div className="bot-buttons">
                                 {message.inline_bot_buttons.flat().map((button, buttonIndex) => <span key={buttonIndex}>{button.text || "Telegram button"}</span>)}
@@ -1642,6 +1685,43 @@ export default function Home() {
               <button type="submit" className="rename-chat-save" aria-label="Save chat name" disabled={!conversationNameDraft.trim()}>Save</button>
             </footer>
           </form>
+        </div>
+      )}
+
+      {privacySettingsOpen && (
+        <div className="rename-chat-overlay privacy-settings-overlay" role="dialog" aria-modal="true" aria-labelledby="privacy-settings-title">
+          <button className="rename-chat-backdrop" type="button" onClick={() => setPrivacySettingsOpen(false)} aria-label="Dismiss privacy settings" tabIndex={-1} />
+          <section className="rename-chat-modal privacy-settings-modal">
+            <header>
+              <div className="privacy-settings-icon" aria-hidden="true">◆</div>
+              <div><strong id="privacy-settings-title">Privacy settings</strong><small>Control network access and saved archive data</small></div>
+              <button type="button" onClick={() => setPrivacySettingsOpen(false)} aria-label="Close privacy settings">×</button>
+            </header>
+            <div className="privacy-setting-row">
+              <div>
+                <strong>Rich link previews</strong>
+                <p>When on, Stillgram contacts websites for visible links. Those sites can see your IP address and the requested URL.</p>
+              </div>
+              <label className="privacy-switch">
+                <input type="checkbox" checked={linkPreviewsEnabled} onChange={(event) => setRichLinkPreviews(event.target.checked)} />
+                <span aria-hidden="true" />
+                <b>{linkPreviewsEnabled ? "On" : "Off"}</b>
+              </label>
+            </div>
+            <div className="privacy-setting-row saved-data-setting">
+              <div>
+                <strong>Saved archive copy</strong>
+                <p>Archive files are stored locally for refresh recovery. They are not encrypted by Stillgram.</p>
+              </div>
+              <button className="clear-cache-button" type="button" onClick={() => void clearSavedArchiveCache()} disabled={isDemo || cacheStatus !== "saved"}>
+                Clear saved copy
+              </button>
+            </div>
+            {privacyStatus && <p className="privacy-settings-status" role="status">{privacyStatus}</p>}
+            <footer>
+              <button type="button" className="rename-chat-save" onClick={() => setPrivacySettingsOpen(false)}>Done</button>
+            </footer>
+          </section>
         </div>
       )}
 

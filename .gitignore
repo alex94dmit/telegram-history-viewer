@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+*.tsbuildinfo
 
 # next.js
 /.next/
@@ -40,3 +41,14 @@ yarn-error.log*
 /release/
 /outputs/
 /work/
+
+# Local Telegram exports contain private conversations and media.
+/result.json
+/ChatExport*/
+/Chat_export*/
+/photos/
+/video_files/
+/voice_messages/
+/round_video_messages/
+/stickers/
+/contacts/

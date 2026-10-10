@@ -6,11 +6,12 @@ async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
+  const renderRequest = typeof worker === "function"
+    ? worker
+    : worker.fetch.bind(worker);
 
-  return worker.fetch(
+  return renderRequest(
     new Request("http://localhost/", { headers: { accept: "text/html" } }),
-    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
-    { waitUntil() {}, passThroughOnException() {} },
   );
 }
 
@@ -108,6 +109,12 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /const MEDIA_MESSAGE_LIMIT = 60/);
   assert.match(page, /selectMediaFilter/);
   assert.match(page, /\/api\/link-preview/);
+  assert.match(page, /X-Stillgram-Link-Preview/);
+  assert.match(page, /LINK_PREVIEWS_STORAGE_KEY/);
+  assert.match(page, /Rich link previews/);
+  assert.match(page, /Clear saved copy/);
+  assert.match(page, /not encrypted by Stillgram/);
+  assert.match(page, /enabled=\{linkPreviewsEnabled\}/);
   assert.match(page, /fetch\(src\)/);
   assert.doesNotMatch(page, /fetch\(\s*["'`]https?:/);
   assert.match(page, /Media folder isn’t connected/);
@@ -134,4 +141,25 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(layout, /ResizeObserver loop completed with undelivered notifications/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
+});
+
+test("link-preview endpoint rejects unmarked and local-network requests", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("security-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const renderRequest = typeof worker === "function"
+    ? worker
+    : worker.fetch.bind(worker);
+
+  const unmarked = await renderRequest(
+    new Request("http://localhost/api/link-preview?url=https://example.com"),
+  );
+  assert.equal(unmarked.status, 403);
+
+  const privateTarget = await renderRequest(
+    new Request("http://localhost/api/link-preview?url=http://[::1]", {
+      headers: { "X-Stillgram-Link-Preview": "1" },
+    }),
+  );
+  assert.equal(privateTarget.status, 400);
 });

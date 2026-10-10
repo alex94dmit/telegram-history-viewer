@@ -16,44 +16,42 @@
     "desktop:test": "npm run build && node desktop/smoke-test.mjs",
     "desktop:run": "npm run build && electron .",
     "desktop:build": "npm run desktop:icon && npm run build && electron-builder --win portable --x64",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs && node desktop/smoke-test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "test": "npm run build && node --test tests/rendered-html.test.mjs desktop/security-test.mjs && node desktop/smoke-test.mjs",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
-    "drizzle-orm": "0.45.2",
     "lottie-web": "^5.13.0",
-    "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
     "@eslint/js": "9.39.4",
-    "@next/eslint-plugin-next": "16.2.6",
+    "@next/eslint-plugin-next": "16.4.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.2",
-    "@vitejs/plugin-rsc": "0.5.26",
-    "drizzle-kit": "0.31.10",
-    "electron": "^43.4.0",
-    "electron-builder": "^26.15.3",
+    "@vitejs/plugin-react": "6.1.2",
+    "@vitejs/plugin-rsc": "0.5.36",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
-    "react-server-dom-webpack": "19.2.6",
-    "sharp": "^0.35.3",
+    "react-server-dom-webpack": "19.3.0",
+    "sharp": "^0.35.5",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
-    "vinext": "1.0.0-beta.2",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "vinext": "1.0.0-beta.6",
+    "vite": "8.3.4"
   },
   "type": "module",
+  "overrides": {
+    "fflate": "0.8.3"
+  },
   "build": {
     "appId": "com.stillgram.archive",
     "productName": "Stillgram",
@@ -65,6 +63,7 @@
     "files": [
       "desktop/main.mjs",
       "desktop/server.mjs",
+      "desktop/link-preview.mjs",
       "dist/**/*",
       "package.json"
     ],

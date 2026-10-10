@@ -15,6 +15,14 @@ function isExternalUrl(url, localOrigin) {
   }
 }
 
+function isInternalUrl(url, localOrigin) {
+  try {
+    return new URL(url).origin === localOrigin;
+  } catch {
+    return false;
+  }
+}
+
 async function createMainWindow() {
   localServer ??= await startStillgramServer(appRoot);
   const localOrigin = new URL(localServer.url).origin;
@@ -31,24 +39,37 @@ async function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
+      spellcheck: false,
     },
   });
+
+  window.webContents.session.setPermissionCheckHandler(() => false);
+  window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  window.webContents.session.webRequest.onBeforeRequest(
+    { urls: ["http://*/*", "https://*/*"] },
+    ({ url }, callback) => callback({ cancel: !isInternalUrl(url, localOrigin) }),
+  );
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalUrl(url, localOrigin)) void shell.openExternal(url);
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
-    if (!isExternalUrl(url, localOrigin)) return;
+    if (isInternalUrl(url, localOrigin)) return;
     event.preventDefault();
-    void shell.openExternal(url);
+    if (isExternalUrl(url, localOrigin)) void shell.openExternal(url);
   });
+  window.webContents.on("will-attach-webview", (event) => event.preventDefault());
   window.once("ready-to-show", () => window.show());
   await window.loadURL(localServer.url);
   return window;
 }
 
 app.setName("Stillgram");
+app.enableSandbox();
 
 app.whenReady().then(async () => {
   await createMainWindow();
