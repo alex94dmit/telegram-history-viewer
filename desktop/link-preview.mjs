@@ -7,7 +7,7 @@ const MAX_HTML_BYTES = 1_500_000;
 const MAX_IMAGE_BYTES = 3_000_000;
 const REQUEST_TIMEOUT_MS = 7_000;
 const MAX_REDIRECTS = 4;
-const PREVIEW_REQUEST_HEADER = "x-stillgram-link-preview";
+const PREVIEW_REQUEST_HEADER = "x-telegram-history-viewer";
 const IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 
 function blockedIpv4(address) {
@@ -91,7 +91,7 @@ async function requestOnce(target, byteLimit) {
       headers: {
         Accept: "text/html,application/xhtml+xml,image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.8",
         "Accept-Encoding": "identity",
-        "User-Agent": "StillgramLinkPreview/1.0",
+        "User-Agent": "TelegramHistoryViewerLinkPreview/1.0",
       },
       lookup(_hostname, options, callback) {
         if (options?.all) callback(null, [address]);

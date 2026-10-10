@@ -34,18 +34,18 @@ export async function generateMetadata(): Promise<Metadata> {
   const origin = `${protocol}://${host}`;
 
   return {
-    title: "Stillgram — Private Telegram archive viewer",
+    title: "Telegram History Viewer — Private archive viewer",
     description:
       "Browse and search Telegram chat exports locally. Your messages and media never leave your device.",
     openGraph: {
-      title: "Stillgram",
+      title: "Telegram History Viewer",
       description: "Your Telegram archive, quietly kept.",
       type: "website",
-      images: [{ url: `${origin}/og.png`, width: 1734, height: 907, alt: "Stillgram private chat archive viewer" }],
+      images: [{ url: `${origin}/og.png`, width: 1734, height: 907, alt: "Telegram History Viewer private archive interface" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Stillgram",
+      title: "Telegram History Viewer",
       description: "Your Telegram archive, quietly kept.",
       images: [`${origin}/og.png`],
     },

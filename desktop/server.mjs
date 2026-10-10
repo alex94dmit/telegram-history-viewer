@@ -93,7 +93,7 @@ function applySecurityHeaders(outgoing) {
   SECURITY_HEADERS.forEach((value, name) => outgoing.setHeader(name, value));
 }
 
-export async function startStillgramServer(appRoot) {
+export async function startTelegramHistoryViewerServer(appRoot) {
   const clientRoot = resolve(appRoot, "dist", "client");
   const workerEntry = resolve(appRoot, "dist", "server", "index.js");
   const { default: worker } = await import(pathToFileURL(workerEntry).href);
@@ -105,7 +105,7 @@ export async function startStillgramServer(appRoot) {
   const server = createServer(async (incoming, outgoing) => {
     try {
       const address = server.address();
-      if (!address || typeof address === "string") throw new Error("Stillgram server is not ready.");
+      if (!address || typeof address === "string") throw new Error("Telegram History Viewer server is not ready.");
       const origin = `http://127.0.0.1:${address.port}`;
       const headers = new Headers();
       Object.entries(incoming.headers).forEach(([name, value]) => {
@@ -124,7 +124,7 @@ export async function startStillgramServer(appRoot) {
       const directAsset = await assetResponse(clientRoot, request);
       const pathname = new URL(request.url).pathname;
       const cookie = request.headers.get("cookie") ?? "";
-      const sessionIsValid = cookie.split(";").some((part) => part.trim() === `stillgram_session=${sessionToken}`);
+      const sessionIsValid = cookie.split(";").some((part) => part.trim() === `telegram_history_viewer_session=${sessionToken}`);
       const response = pathname === "/api/link-preview"
         ? sessionIsValid
           ? await handleLinkPreviewRequest(request)
@@ -137,7 +137,7 @@ export async function startStillgramServer(appRoot) {
       outgoing.statusMessage = response.statusText;
       copyResponseHeaders(response, outgoing);
       applySecurityHeaders(outgoing);
-      outgoing.setHeader("set-cookie", `stillgram_session=${sessionToken}; HttpOnly; SameSite=Strict; Path=/`);
+      outgoing.setHeader("set-cookie", `telegram_history_viewer_session=${sessionToken}; HttpOnly; SameSite=Strict; Path=/`);
       outgoing.setHeader("connection", "close");
       if (incoming.method === "HEAD" || !response.body) {
         outgoing.end();
@@ -148,7 +148,7 @@ export async function startStillgramServer(appRoot) {
       outgoing.statusCode = error instanceof Error && error.message === "Request body is too large." ? 413 : 500;
       outgoing.setHeader("content-type", "text/plain; charset=utf-8");
       applySecurityHeaders(outgoing);
-      outgoing.end(outgoing.statusCode === 413 ? "Request body is too large." : "Stillgram could not complete the request.");
+      outgoing.end(outgoing.statusCode === 413 ? "Request body is too large." : "Telegram History Viewer could not complete the request.");
     }
   });
 
@@ -160,7 +160,7 @@ export async function startStillgramServer(appRoot) {
     });
   });
   const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Stillgram could not reserve a local port.");
+  if (!address || typeof address === "string") throw new Error("Telegram History Viewer could not reserve a local port.");
 
   return {
     url: `http://127.0.0.1:${address.port}/`,

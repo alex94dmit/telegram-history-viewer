@@ -189,12 +189,26 @@ const dayFormatter = new Intl.DateTimeFormat(undefined, {
 });
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 const mediaDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
-const ARCHIVE_CACHE_DATABASE = "stillgram-local-archive-files";
+const ARCHIVE_CACHE_DATABASE = "telegram-history-viewer-local-archive-files";
+const LEGACY_ARCHIVE_CACHE_DATABASE = "stillgram-local-archive-files";
 const ARCHIVE_FILES_STORE = "files";
 const ARCHIVE_META_STORE = "metadata";
 const ARCHIVE_CACHE_KEY = "current-archive";
-const CHAT_REMOVED_STORAGE_KEY = "stillgram:chat-removed";
-const LINK_PREVIEWS_STORAGE_KEY = "stillgram:allow-link-previews";
+const CHAT_REMOVED_STORAGE_KEY = "telegram-history-viewer:chat-removed";
+const LEGACY_CHAT_REMOVED_STORAGE_KEY = "stillgram:chat-removed";
+const LINK_PREVIEWS_STORAGE_KEY = "telegram-history-viewer:allow-link-previews";
+const LEGACY_LINK_PREVIEWS_STORAGE_KEY = "stillgram:allow-link-previews";
+
+function readMigratedStorage(currentKey: string, legacyKey: string) {
+  const currentValue = window.localStorage.getItem(currentKey);
+  if (currentValue !== null) return currentValue;
+  const legacyValue = window.localStorage.getItem(legacyKey);
+  if (legacyValue !== null) {
+    window.localStorage.setItem(currentKey, legacyValue);
+    window.localStorage.removeItem(legacyKey);
+  }
+  return legacyValue;
+}
 
 function messageText(message: TelegramMessage): string {
   const source = message.text_entities ?? message.text ?? "";
@@ -207,9 +221,9 @@ function normalizePath(path: string) {
   return path.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
-function openArchiveCache() {
+function openArchiveCache(databaseName = ARCHIVE_CACHE_DATABASE) {
   return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(ARCHIVE_CACHE_DATABASE, 1);
+    const request = indexedDB.open(databaseName, 1);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(ARCHIVE_FILES_STORE)) {
         request.result.createObjectStore(ARCHIVE_FILES_STORE, { keyPath: "relativePath" });
@@ -238,10 +252,9 @@ function requestValue<T>(request: IDBRequest<T>) {
   });
 }
 
-async function readCachedArchive() {
-  if (typeof indexedDB === "undefined") return undefined;
+async function readArchiveCache(databaseName: string) {
   try {
-    const database = await openArchiveCache();
+    const database = await openArchiveCache(databaseName);
     const transaction = database.transaction([ARCHIVE_FILES_STORE, ARCHIVE_META_STORE], "readonly");
     const recordsRequest = transaction.objectStore(ARCHIVE_FILES_STORE).getAll() as IDBRequest<CachedArchiveRecord[]>;
     const metadataRequest = transaction.objectStore(ARCHIVE_META_STORE).get(ARCHIVE_CACHE_KEY) as IDBRequest<CachedArchiveMetadata | undefined>;
@@ -253,6 +266,16 @@ async function readCachedArchive() {
   } catch {
     return undefined;
   }
+}
+
+async function readCachedArchive() {
+  if (typeof indexedDB === "undefined") return undefined;
+  const currentArchive = await readArchiveCache(ARCHIVE_CACHE_DATABASE);
+  if (currentArchive) return currentArchive;
+
+  const legacyArchive = await readArchiveCache(LEGACY_ARCHIVE_CACHE_DATABASE);
+  if (legacyArchive) await cacheArchive(legacyArchive.entries, legacyArchive.label);
+  return legacyArchive;
 }
 
 async function cacheArchive(entries: ArchiveFileEntry[], label: string) {
@@ -280,12 +303,14 @@ async function cacheArchive(entries: ArchiveFileEntry[], label: string) {
 async function clearCachedArchive() {
   if (typeof indexedDB === "undefined") return false;
   try {
-    const database = await openArchiveCache();
-    const transaction = database.transaction([ARCHIVE_FILES_STORE, ARCHIVE_META_STORE], "readwrite");
-    transaction.objectStore(ARCHIVE_FILES_STORE).clear();
-    transaction.objectStore(ARCHIVE_META_STORE).delete(ARCHIVE_CACHE_KEY);
-    await waitForTransaction(transaction);
-    database.close();
+    await Promise.all([ARCHIVE_CACHE_DATABASE, LEGACY_ARCHIVE_CACHE_DATABASE].map(async (databaseName) => {
+      const database = await openArchiveCache(databaseName);
+      const transaction = database.transaction([ARCHIVE_FILES_STORE, ARCHIVE_META_STORE], "readwrite");
+      transaction.objectStore(ARCHIVE_FILES_STORE).clear();
+      transaction.objectStore(ARCHIVE_META_STORE).delete(ARCHIVE_CACHE_KEY);
+      await waitForTransaction(transaction);
+      database.close();
+    }));
     return true;
   } catch {
     return false;
@@ -629,7 +654,7 @@ function fetchLinkPreview(url: string) {
   const request = fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
     cache: "no-store",
     credentials: "same-origin",
-    headers: { "X-Stillgram-Link-Preview": "1" },
+    headers: { "X-Telegram-History-Viewer": "1" },
   })
     .then(async (response) => response.ok ? await response.json() as LinkPreviewData : null)
     .catch(() => null);
@@ -830,7 +855,7 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      setLinkPreviewsEnabled(window.localStorage.getItem(LINK_PREVIEWS_STORAGE_KEY) === "true");
+      setLinkPreviewsEnabled(readMigratedStorage(LINK_PREVIEWS_STORAGE_KEY, LEGACY_LINK_PREVIEWS_STORAGE_KEY) === "true");
     } catch {
       setLinkPreviewsEnabled(false);
     }
@@ -842,7 +867,7 @@ export default function Home() {
       try {
         let chatWasRemoved = false;
         try {
-          chatWasRemoved = window.localStorage.getItem(CHAT_REMOVED_STORAGE_KEY) === "true";
+          chatWasRemoved = readMigratedStorage(CHAT_REMOVED_STORAGE_KEY, LEGACY_CHAT_REMOVED_STORAGE_KEY) === "true";
         } catch {
           // The deletion still applies for this session when browser storage is unavailable.
         }
@@ -906,7 +931,9 @@ export default function Home() {
   const otherName = chat.name ?? participants[0] ?? "Contact";
   const meName = participants.find((name) => name !== otherName) ?? participants[1] ?? "You";
   const defaultConversationName = meName === otherName ? otherName : `${meName} & ${otherName}`;
-  const conversationNameStorageKey = `stillgram:chat-name:${String(chat.id ?? `${meName}|${otherName}`)}`;
+  const conversationStorageId = String(chat.id ?? `${meName}|${otherName}`);
+  const conversationNameStorageKey = `telegram-history-viewer:chat-name:${conversationStorageId}`;
+  const legacyConversationNameStorageKey = `stillgram:chat-name:${conversationStorageId}`;
   const customConversationName = conversationNameOverride?.key === conversationNameStorageKey ? conversationNameOverride.value : "";
   const conversationName = customConversationName || defaultConversationName;
   const conversationInitials = `${initials(meName).slice(0, 1)}${initials(otherName).slice(0, 1)}`;
@@ -920,13 +947,13 @@ export default function Home() {
   useEffect(() => {
     let storedName = "";
     try {
-      storedName = window.localStorage.getItem(conversationNameStorageKey)?.trim() ?? "";
+      storedName = readMigratedStorage(conversationNameStorageKey, legacyConversationNameStorageKey)?.trim() ?? "";
     } catch {
       // Renaming still works for this session when browser storage is unavailable.
     }
     setConversationNameOverride(storedName ? { key: conversationNameStorageKey, value: storedName } : null);
     setRenamingConversation(false);
-  }, [conversationNameStorageKey]);
+  }, [conversationNameStorageKey, legacyConversationNameStorageKey]);
 
   useEffect(() => {
     if (!renamingConversation) return;
@@ -1080,6 +1107,7 @@ export default function Home() {
       setVisibleLimit(DEFAULT_MESSAGE_LIMIT);
       try {
         window.localStorage.removeItem(CHAT_REMOVED_STORAGE_KEY);
+        window.localStorage.removeItem(LEGACY_CHAT_REMOVED_STORAGE_KEY);
       } catch {
         // Opening the archive still works when browser storage is unavailable.
       }
@@ -1106,6 +1134,7 @@ export default function Home() {
     if (!enabled) linkPreviewCache.clear();
     try {
       window.localStorage.setItem(LINK_PREVIEWS_STORAGE_KEY, String(enabled));
+      window.localStorage.removeItem(LEGACY_LINK_PREVIEWS_STORAGE_KEY);
     } catch {
       // The setting remains valid for this session when storage is unavailable.
     }
@@ -1116,7 +1145,7 @@ export default function Home() {
     setCacheStatus(cleared ? "idle" : "unavailable");
     setPrivacyStatus(cleared
       ? "Saved archive files were cleared. The currently open chat stays available until you close the app."
-      : "Stillgram could not clear browser storage.");
+      : "Telegram History Viewer could not clear browser storage.");
   }
 
   function onFolderChange(event: ChangeEvent<HTMLInputElement>) {
@@ -1188,7 +1217,9 @@ export default function Home() {
     setError("");
     try {
       window.localStorage.setItem(CHAT_REMOVED_STORAGE_KEY, "true");
+      window.localStorage.removeItem(LEGACY_CHAT_REMOVED_STORAGE_KEY);
       window.localStorage.removeItem(conversationNameStorageKey);
+      window.localStorage.removeItem(legacyConversationNameStorageKey);
     } catch {
       // The chat remains removed for this session when browser storage is unavailable.
     }
@@ -1206,6 +1237,7 @@ export default function Home() {
     setConversationNameOverride({ key: conversationNameStorageKey, value: nextName });
     try {
       window.localStorage.setItem(conversationNameStorageKey, nextName);
+      window.localStorage.removeItem(legacyConversationNameStorageKey);
     } catch {
       // Keep the session-only rename when browser storage is unavailable.
     }
@@ -1395,7 +1427,7 @@ export default function Home() {
             <button className="theme-toggle" type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`}>
               {theme === "light" ? "☾" : "☀"}
             </button>
-            <div className="telegram-brand"><strong>Stillgram</strong><small>local archive</small></div>
+            <div className="telegram-brand"><strong>Telegram History Viewer</strong><small>local archive</small></div>
             <button className="telegram-compose" type="button" onClick={() => void chooseFolder()} aria-label="Open a Telegram export folder">
               ＋
               <span className="control-tooltip" role="tooltip">Open a Telegram export folder</span>
@@ -1411,7 +1443,7 @@ export default function Home() {
                   <div className="chat-list-copy"><strong>{conversationName}</strong></div>
                 </button>
                 <button className="chat-list-rename" type="button" onClick={startConversationRename} aria-label="Rename chat from chat list" title="Rename chat">✎</button>
-                <button className="chat-list-delete" type="button" onClick={() => void removeCurrentChat()} aria-label="Delete current chat" title="Remove chat from Stillgram">
+                <button className="chat-list-delete" type="button" onClick={() => void removeCurrentChat()} aria-label="Delete current chat" title="Remove chat from Telegram History Viewer">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-1 11H8L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z" />
                   </svg>
@@ -1666,7 +1698,7 @@ export default function Home() {
           }}>
             <header>
               <div className="rename-chat-avatar" aria-hidden="true">{conversationInitials}</div>
-              <div><strong id="rename-chat-title">Rename chat</strong><small>Change how this conversation appears in Stillgram</small></div>
+              <div><strong id="rename-chat-title">Rename chat</strong><small>Change how this conversation appears in Telegram History Viewer</small></div>
               <button type="button" onClick={cancelConversationRename} aria-label="Close rename dialog">×</button>
             </header>
             <label>
@@ -1700,7 +1732,7 @@ export default function Home() {
             <div className="privacy-setting-row">
               <div>
                 <strong>Rich link previews</strong>
-                <p>When on, Stillgram contacts websites for visible links. Those sites can see your IP address and the requested URL.</p>
+                <p>When on, Telegram History Viewer contacts websites for visible links. Those sites can see your IP address and the requested URL.</p>
               </div>
               <label className="privacy-switch">
                 <input type="checkbox" checked={linkPreviewsEnabled} onChange={(event) => setRichLinkPreviews(event.target.checked)} />
@@ -1711,7 +1743,7 @@ export default function Home() {
             <div className="privacy-setting-row saved-data-setting">
               <div>
                 <strong>Saved archive copy</strong>
-                <p>Archive files are stored locally for refresh recovery. They are not encrypted by Stillgram.</p>
+                <p>Archive files are stored locally for refresh recovery. They are not encrypted by Telegram History Viewer.</p>
               </div>
               <button className="clear-cache-button" type="button" onClick={() => void clearSavedArchiveCache()} disabled={isDemo || cacheStatus !== "saved"}>
                 Clear saved copy

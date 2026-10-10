@@ -36,7 +36,7 @@ test("link-preview handler requires the same-origin request marker", async () =>
   assert.equal(denied.status, 403);
 
   const blocked = await handleLinkPreviewRequest(new Request("http://127.0.0.1/api/link-preview?url=http://127.0.0.1", {
-    headers: { "X-Stillgram-Link-Preview": "1" },
+    headers: { "X-Telegram-History-Viewer": "1" },
   }));
   assert.equal(blocked.status, 400);
 });

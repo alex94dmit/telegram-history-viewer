@@ -45,7 +45,7 @@ const eslintConfig = defineConfig([
   {
     files: ["app/page.tsx"],
     rules: {
-      // Telegram exports do not provide caption-track files. Stillgram preserves
+      // Telegram exports do not provide caption-track files. Telegram History Viewer preserves
       // the original media and accessible labels instead of inventing captions.
       "jsx-a11y/media-has-caption": "off",
       // Focusable spoilers and click-to-dismiss modal stages are intentional,

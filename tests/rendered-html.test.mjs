@@ -15,14 +15,14 @@ async function render() {
   );
 }
 
-test("server-renders the Stillgram archive viewer", async () => {
+test("server-renders Telegram History Viewer", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Stillgram — Private Telegram archive viewer<\/title>/i);
-  assert.match(html, /Stillgram/);
+  assert.match(html, /<title>Telegram History Viewer — Private archive viewer<\/title>/i);
+  assert.match(html, /Telegram History Viewer/);
   assert.match(html, /local archive/);
   assert.match(html, /Private archive/);
   assert.match(html, /Open a Telegram export folder/);
@@ -71,7 +71,7 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /conversationName/);
   assert.match(page, /conversationInitials/);
   assert.match(page, /conversationNameStorageKey/);
-  assert.match(page, /localStorage\.getItem\(conversationNameStorageKey\)/);
+  assert.match(page, /readMigratedStorage\(conversationNameStorageKey, legacyConversationNameStorageKey\)/);
   assert.match(page, /localStorage\.setItem\(conversationNameStorageKey, nextName\)/);
   assert.match(page, /aria-label="Chat name"/);
   assert.match(page, /aria-label="Save chat name"/);
@@ -109,11 +109,11 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /const MEDIA_MESSAGE_LIMIT = 60/);
   assert.match(page, /selectMediaFilter/);
   assert.match(page, /\/api\/link-preview/);
-  assert.match(page, /X-Stillgram-Link-Preview/);
+  assert.match(page, /X-Telegram-History-Viewer/);
   assert.match(page, /LINK_PREVIEWS_STORAGE_KEY/);
   assert.match(page, /Rich link previews/);
   assert.match(page, /Clear saved copy/);
-  assert.match(page, /not encrypted by Stillgram/);
+  assert.match(page, /not encrypted by Telegram History Viewer/);
   assert.match(page, /enabled=\{linkPreviewsEnabled\}/);
   assert.match(page, /fetch\(src\)/);
   assert.doesNotMatch(page, /fetch\(\s*["'`]https?:/);
@@ -136,7 +136,7 @@ test("keeps local import behavior explicit in the source", async () => {
   assert.match(page, /closeMediaViewer/);
   assert.match(page, /role="dialog"/);
   assert.match(page, /Close media viewer/);
-  assert.match(layout, /Stillgram/);
+  assert.match(layout, /Telegram History Viewer/);
   assert.match(layout, /\/og\.png/);
   assert.match(layout, /ResizeObserver loop completed with undelivered notifications/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
@@ -158,7 +158,7 @@ test("link-preview endpoint rejects unmarked and local-network requests", async 
 
   const privateTarget = await renderRequest(
     new Request("http://localhost/api/link-preview?url=http://[::1]", {
-      headers: { "X-Stillgram-Link-Preview": "1" },
+      headers: { "X-Telegram-History-Viewer": "1" },
     }),
   );
   assert.equal(privateTarget.status, 400);

@@ -1,21 +1,21 @@
 import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startStillgramServer } from "./server.mjs";
+import { startTelegramHistoryViewerServer } from "./server.mjs";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const server = await startStillgramServer(appRoot);
+const server = await startTelegramHistoryViewerServer(appRoot);
 
 try {
   const page = await fetch(server.url);
   const html = await page.text();
   assert.equal(page.status, 200);
-  assert.match(html, /Stillgram/);
+  assert.match(html, /Telegram History Viewer/);
   assert.match(page.headers.get("content-security-policy") ?? "", /default-src 'self'/);
   assert.equal(page.headers.get("x-content-type-options"), "nosniff");
   assert.equal(page.headers.get("x-frame-options"), "DENY");
   const sessionCookie = page.headers.get("set-cookie")?.split(";", 1)[0];
-  assert.ok(sessionCookie?.startsWith("stillgram_session="));
+  assert.ok(sessionCookie?.startsWith("telegram_history_viewer_session="));
 
   const cssPath = html.match(/href="([^"]+\.css[^"]*)"/)?.[1];
   assert.ok(cssPath, "The desktop page should reference its compiled stylesheet.");
@@ -24,7 +24,7 @@ try {
   assert.match(stylesheet.headers.get("content-type") ?? "", /^text\/css\b/);
 
   const previewWithoutSession = await fetch(new URL("/api/link-preview?url=https://example.com", server.url), {
-    headers: { "X-Stillgram-Link-Preview": "1" },
+    headers: { "X-Telegram-History-Viewer": "1" },
   });
   assert.equal(previewWithoutSession.status, 403);
 
@@ -34,11 +34,11 @@ try {
   assert.equal(previewWithoutMarker.status, 403);
 
   const blockedPreview = await fetch(new URL("/api/link-preview?url=http://127.0.0.1", server.url), {
-    headers: { Cookie: sessionCookie, "X-Stillgram-Link-Preview": "1" },
+    headers: { Cookie: sessionCookie, "X-Telegram-History-Viewer": "1" },
   });
   assert.equal(blockedPreview.status, 400);
 
-  console.log("Stillgram desktop server smoke test passed.");
+  console.log("Telegram History Viewer desktop server smoke test passed.");
 } finally {
   await server.close();
 }

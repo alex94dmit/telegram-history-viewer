@@ -1,4 +1,4 @@
-# Stillgram security
+# Telegram History Viewer security
 
 ## Supported version
 
@@ -10,7 +10,7 @@ Do not include real Telegram exports, messages, media, access tokens, or other p
 
 ## Security boundary
 
-Stillgram is a local archive viewer, not an encrypted vault. The original Telegram export and Stillgram's refresh cache are plaintext data available to software running as the same operating-system user. Use full-disk encryption, a protected Windows account, and the **Clear saved copy** control when the archive should not remain cached.
+Telegram History Viewer is a local archive viewer, not an encrypted vault. The original Telegram export and the viewer's refresh cache are plaintext data available to software running as the same operating-system user. Use full-disk encryption, a protected Windows account, and the **Clear saved copy** control when the archive should not remain cached.
 
 The desktop renderer is sandboxed, has no Node.js access, and is restricted to the app's loopback origin. The embedded server listens only on `127.0.0.1`, requires a per-launch session cookie for link-preview requests, and applies restrictive browser security headers.
 
@@ -28,7 +28,7 @@ Before publishing a release:
 
 ## Known limitations
 
-- Cached archive data is not encrypted by Stillgram.
+- Cached archive data is not encrypted by Telegram History Viewer.
 - The Content Security Policy permits inline scripts because the current application framework emits inline hydration data. External script origins remain blocked.
 - The unsigned development executable can trigger Windows SmartScreen warnings.
 - The hosted/browser build cannot pin DNS results in the same way as the desktop runtime. Its rich-preview endpoint applies protocol, hostname, address-literal, port, redirect, request-marker, timeout, and size checks, but the desktop build has the stronger network boundary.

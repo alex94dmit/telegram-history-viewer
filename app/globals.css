@@ -1609,7 +1609,8 @@ body {
 
 .telegram-brand strong {
   font-size: 15px;
-  line-height: 1.1;
+  line-height: 1.05;
+  text-wrap: balance;
 }
 
 .telegram-brand small {
@@ -3244,10 +3245,8 @@ body {
   }
 
   .telegram-brand strong {
-    overflow: hidden;
     font-size: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.05;
   }
 
   .telegram-brand small {

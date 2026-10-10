@@ -1,0 +1,98 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish portable app
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package version
+        shell: pwsh
+        run: |
+          $packageVersion = node -p "require('./package.json').version"
+          $expectedTag = "v$packageVersion"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Release tag '$env:GITHUB_REF_NAME' must match package version '$expectedTag'."
+          }
+
+      - name: Check TypeScript
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build and test
+        run: npm test
+
+      - name: Build portable Windows application
+        run: npm run desktop:build
+
+      - name: Create SHA-256 checksum
+        shell: pwsh
+        run: |
+          $executables = @(Get-ChildItem -LiteralPath release -Filter '*.exe')
+          if ($executables.Count -ne 1) {
+            throw "Expected exactly one executable in release, found $($executables.Count)."
+          }
+
+          $executable = $executables[0]
+          $checksumPath = Join-Path $executable.DirectoryName "$($executable.BaseName).sha256"
+          $hash = (Get-FileHash -LiteralPath $executable.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath $checksumPath -Value "$hash  $($executable.Name)" -Encoding ascii
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: telegram-history-viewer-${{ github.ref_name }}-windows-x64
+          path: |
+            release/*.exe
+            release/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(
+            Get-ChildItem -LiteralPath release -Filter '*.exe'
+            Get-ChildItem -LiteralPath release -Filter '*.sha256'
+          )
+          if ($assets.Count -ne 2) {
+            throw "Expected an executable and checksum, found $($assets.Count) release assets."
+          }
+
+          gh release create $env:GITHUB_REF_NAME `
+            --verify-tag `
+            --generate-notes `
+            --title "Telegram History Viewer $env:GITHUB_REF_NAME" `
+            $assets.FullName

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell } from "electron";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startStillgramServer } from "./server.mjs";
+import { startTelegramHistoryViewerServer } from "./server.mjs";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let localServer;
@@ -24,10 +24,10 @@ function isInternalUrl(url, localOrigin) {
 }
 
 async function createMainWindow() {
-  localServer ??= await startStillgramServer(appRoot);
+  localServer ??= await startTelegramHistoryViewerServer(appRoot);
   const localOrigin = new URL(localServer.url).origin;
   const window = new BrowserWindow({
-    title: "Stillgram",
+    title: "Telegram History Viewer",
     width: 1180,
     height: 820,
     minWidth: 420,
@@ -68,7 +68,7 @@ async function createMainWindow() {
   return window;
 }
 
-app.setName("Stillgram");
+app.setName("Telegram History Viewer");
 app.enableSandbox();
 
 app.whenReady().then(async () => {

@@ -1,8 +1,8 @@
 {
-  "name": "stillgram",
+  "name": "telegram-history-viewer",
   "version": "0.1.0",
   "description": "A private, on-device viewer for exported Telegram conversations.",
-  "author": "Stillgram",
+  "author": "Telegram History Viewer",
   "private": true,
   "main": "desktop/main.mjs",
   "engines": {
@@ -17,6 +17,7 @@
     "desktop:run": "npm run build && electron .",
     "desktop:build": "npm run desktop:icon && npm run build && electron-builder --win portable --x64",
     "test": "npm run build && node --test tests/rendered-html.test.mjs desktop/security-test.mjs && node desktop/smoke-test.mjs",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
@@ -53,8 +54,8 @@
     "fflate": "0.8.3"
   },
   "build": {
-    "appId": "com.stillgram.archive",
-    "productName": "Stillgram",
+    "appId": "com.telegramhistoryviewer.archive",
+    "productName": "Telegram History Viewer",
     "asar": true,
     "directories": {
       "buildResources": "build-resources",
@@ -77,7 +78,7 @@
           ]
         }
       ],
-      "artifactName": "Stillgram-${version}-portable.${ext}"
+      "artifactName": "Telegram-History-Viewer-${version}-portable.${ext}"
     }
   }
 }

@@ -1,6 +1,6 @@
 const MAX_HTML_BYTES = 1_500_000;
 const MAX_URL_CHARACTERS = 4_096;
-const PREVIEW_REQUEST_HEADER = "x-stillgram-link-preview";
+const PREVIEW_REQUEST_HEADER = "x-telegram-history-viewer";
 
 function blockedIpv4(host: string) {
   const parts = host.split(".").map(Number);
@@ -53,7 +53,7 @@ async function fetchWithSafeRedirects(initialUrl: URL) {
     const response = await fetch(target, {
       headers: {
         Accept: "text/html,application/xhtml+xml,image/*;q=0.8",
-        "User-Agent": "Mozilla/5.0 (compatible; StillgramLinkPreview/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; TelegramHistoryViewerLinkPreview/1.0)",
       },
       redirect: "manual",
       signal: AbortSignal.timeout(7000),
